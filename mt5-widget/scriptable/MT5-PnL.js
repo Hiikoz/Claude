@@ -147,13 +147,32 @@ async function mfxAuthed(method, params = {}) {
   return mfxCall(method, { session, ...params });
 }
 
-// Myfxbook renvoie "MM/dd/yyyy HH:mm"
+// Myfxbook renvoie "MM/dd/yyyy HH:mm", a priori en GMT (sans fuseau indiqué).
+// On essaie GMT ; si ça tombe dans le futur, on essaie l'heure locale.
 function parseMfxDate(str) {
   const m = /^(\d{2})\/(\d{2})\/(\d{4}) (\d{2}):(\d{2})/.exec(str || "");
   const now = Date.now();
-  if (!m) return now;
-  const t = new Date(+m[3], +m[1] - 1, +m[2], +m[4], +m[5]).getTime();
-  return t > now + 5 * 60 * 1000 ? now : t; // fuseau douteux : on prend maintenant
+  if (!m) return null;
+  const [y, mo, d, h, mi] = [+m[3], +m[1] - 1, +m[2], +m[4], +m[5]];
+  const utc = Date.UTC(y, mo, d, h, mi);
+  if (utc <= now + 5 * 60 * 1000) return utc;
+  const local = new Date(y, mo, d, h, mi).getTime();
+  if (local <= now + 5 * 60 * 1000) return local;
+  return null;
+}
+
+// Mémorise le moment où le widget a vu les chiffres changer pour la dernière fois.
+// Sert de filet de sécurité si la date Myfxbook est dans un fuseau inattendu.
+const seenPath = fm.joinPath(fm.cacheDirectory(), "mt5-pnl-seen.json");
+function lastChangeTime(fingerprint) {
+  let seen = null;
+  try {
+    if (fm.fileExists(seenPath)) seen = JSON.parse(fm.readString(seenPath));
+  } catch (e) {}
+  if (seen && seen.fp === fingerprint) return seen.t;
+  const t = Date.now();
+  fm.writeString(seenPath, JSON.stringify({ fp: fingerprint, t }));
+  return seen ? t : null; // premier lancement : pas d'info
 }
 
 function pickAccount(accounts, wanted) {
@@ -182,8 +201,13 @@ async function fetchMyfxbook(wanted) {
     tp: Number(t.tp),
     pnl: Number(t.profit || 0) + Number(t.swap || 0),
   }));
+  const fingerprint = [acc.id, acc.equity, acc.balance, ...positions.map((p) => p.pnl)].join("|");
+  const fromSource = parseMfxDate(acc.lastUpdateDate);
+  const fromChange = lastChangeTime(fingerprint);
+  const best = Math.max(fromSource || 0, fromChange || 0) || Date.now();
   return {
-    ts: Math.floor(parseMfxDate(acc.lastUpdateDate) / 1000),
+    ts: Math.floor(best / 1000),
+    sourceDate: acc.lastUpdateDate,
     login: acc.accountId,
     name: acc.name,
     currency: acc.currency,
@@ -244,6 +268,28 @@ async function setupMyfxbook() {
   return true;
 }
 
+async function diagnostic() {
+  const a = new Alert();
+  a.title = "Diagnostic Myfxbook";
+  try {
+    const { accounts } = await mfxAuthed("get-my-accounts");
+    const acc = pickAccount(accounts, (args.widgetParameter || "").trim());
+    const src = parseMfxDate(acc.lastUpdateDate);
+    const fmtT = (t) => (t ? new Date(t).toLocaleString("fr-FR") : "?");
+    a.message =
+      `Compte : ${acc.name} (${acc.accountId})\n` +
+      `Date Myfxbook brute : ${acc.lastUpdateDate}\n` +
+      `Interprétée : ${fmtT(src)}\n` +
+      `Heure de l'iPhone : ${fmtT(Date.now())}\n` +
+      `Équité : ${acc.equity} ${acc.currency}`;
+  } catch (e) {
+    a.message = "Erreur : " + e.message;
+  }
+  a.addAction("Copier");
+  a.addCancelAction("OK");
+  if ((await a.presentAlert()) === 0) Pasteboard.copy(a.message);
+}
+
 async function appMenu() {
   if (CONFIG.backend !== "myfxbook") return true;
   if (!kcGet(KC.email)) return setupMyfxbook();
@@ -251,12 +297,17 @@ async function appMenu() {
   m.title = "MT5 P&L";
   m.addAction("Aperçu du widget");
   m.addAction("Changer d'identifiants / de compte");
+  m.addAction("Diagnostic");
   m.addDestructiveAction("Se déconnecter");
   m.addCancelAction("Fermer");
   const r = await m.presentSheet();
   if (r === 0) return true;
   if (r === 1) return setupMyfxbook();
   if (r === 2) {
+    await diagnostic();
+    return false;
+  }
+  if (r === 3) {
     Object.values(KC).forEach((k) => Keychain.contains(k) && Keychain.remove(k));
     if (fm.fileExists(cachePath)) fm.remove(cachePath);
   }
