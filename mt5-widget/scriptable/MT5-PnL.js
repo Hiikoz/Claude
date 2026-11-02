@@ -281,6 +281,9 @@ async function diagnostic() {
       `Date Myfxbook brute : ${acc.lastUpdateDate}\n` +
       `Interprétée : ${fmtT(src)}\n` +
       `Heure de l'iPhone : ${fmtT(Date.now())}\n` +
+      `Dernière actualisation du widget : ${fmtT(readStatus().lastOk)}\n` +
+      `Exécutions comptées : ${readStatus().runs || 0}\n` +
+      `Dernière erreur : ${readStatus().lastError || "aucune"}\n` +
       `Équité : ${acc.equity} ${acc.currency}`;
   } catch (e) {
     a.message = "Erreur : " + e.message;
@@ -316,6 +319,21 @@ async function appMenu() {
 
 // ---------------------------------------------------------------------
 
+// Journal des exécutions (pour le diagnostic)
+const statusPath = fm.joinPath(fm.cacheDirectory(), "mt5-pnl-status.json");
+function readStatus() {
+  try {
+    return fm.fileExists(statusPath) ? JSON.parse(fm.readString(statusPath)) : {};
+  } catch (e) {
+    return {};
+  }
+}
+function writeStatus(st) {
+  try {
+    fm.writeString(statusPath, JSON.stringify({ ...st, runs: (readStatus().runs || 0) + 1 }));
+  } catch (e) {}
+}
+
 async function loadData(key) {
   try {
     const data =
@@ -324,9 +342,12 @@ async function loadData(key) {
         : CONFIG.backend === "metaapi"
         ? await fetchMetaApi()
         : await fetchUpstash(key);
+    data.fetchedAt = Date.now();
     fm.writeString(cachePath, JSON.stringify(data));
+    writeStatus({ lastRun: Date.now(), lastOk: Date.now(), lastError: null });
     return { data, error: null };
   } catch (e) {
+    writeStatus({ ...readStatus(), lastRun: Date.now(), lastError: e.message });
     // Hors ligne ou erreur : on affiche la dernière valeur connue
     if (fm.fileExists(cachePath)) {
       return { data: JSON.parse(fm.readString(cachePath)), error: e.message };
@@ -361,14 +382,14 @@ const pnlColor = (n) =>
 const arrow = (n) => (n > 0 ? "▲" : n < 0 ? "▼" : "■");
 const isStale = (d) => Date.now() / 1000 - d.ts > (CONFIG.staleAfterMin[CONFIG.backend] || 5) * 60;
 
-function addAge(stack, d, font) {
-  const t = stack.addDate(new Date(d.ts * 1000));
-  t.applyRelativeStyle(); // iOS met à jour "il y a X min" tout seul
-  t.font = font;
-  t.textOpacity = 0.7;
-  t.lineLimit = 1;
-  return t;
-}
+const pad = (n) => String(n).padStart(2, "0");
+const hm = (ms) => {
+  const d = new Date(ms);
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
+// Heure des chiffres (source) et heure de la dernière actualisation du widget
+const dataTime = (d) => hm(d.ts * 1000);
+const runTime = (d) => (d.fetchedAt ? hm(d.fetchedAt) : "?");
 
 // ----------------------------- WIDGETS -------------------------------
 
@@ -420,10 +441,11 @@ function rectangularWidget(d, error) {
 
   const head = w.addStack();
   head.centerAlignContent();
-  const title = head.addText(`MT5 · ${d.count} pos · `);
+  const title = head.addText(`MT5 · ${d.count} pos · chiffres de ${dataTime(d)}`);
   title.font = Font.semiboldSystemFont(11);
   title.textOpacity = 0.7;
-  addAge(head, d, Font.systemFont(11));
+  title.lineLimit = 1;
+  title.minimumScaleFactor = 0.8;
   if (error || isStale(d)) {
     const warn = head.addText(" ⚠︎");
     warn.font = Font.systemFont(11);
@@ -437,6 +459,7 @@ function rectangularWidget(d, error) {
   const parts = [];
   if (d.today !== null && d.today !== undefined) parts.push(`Jour ${fmt(d.today)}`);
   parts.push(`Éq ${fmt(d.equity, { sign: false, decimals: 0 })}`);
+  parts.push(`↻ ${runTime(d)}`);
   const sub = w.addText(parts.join(" · "));
   sub.font = Font.systemFont(11);
   sub.minimumScaleFactor = 0.7;
@@ -457,7 +480,9 @@ function homeWidget(d, error, family) {
   title.textColor = Color.white();
   title.textOpacity = 0.7;
   head.addSpacer();
-  const age = addAge(head, d, Font.systemFont(10));
+  const age = head.addText(`${dataTime(d)} · ↻ ${runTime(d)}`);
+  age.font = Font.systemFont(10);
+  age.textOpacity = 0.7;
   age.textColor = error || isStale(d) ? new Color("#FFD60A") : Color.white();
 
   w.addSpacer(6);
