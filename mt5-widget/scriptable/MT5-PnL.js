@@ -9,15 +9,21 @@
 //   - Écran de verrouillage : rectangulaire, circulaire, en ligne
 //   - Écran d'accueil       : petit, moyen, grand
 //
-//  Paramètre du widget (facultatif) : nom de la clé Redis à lire
-//  (utile si vous suivez plusieurs comptes, ex. "mt5pnl_demo").
+//  Myfxbook (par défaut) : lancez le script une fois dans l'app
+//  Scriptable, il vous demande vos identifiants Myfxbook et le compte
+//  à suivre, puis les range dans le trousseau iOS. Rien à modifier ici.
+//
+//  Paramètre du widget (facultatif) :
+//   - Myfxbook : nom ou numéro du compte à afficher
+//   - Upstash  : nom de la clé Redis (ex. "mt5pnl_demo")
 // =====================================================================
 
 // ------------------------------ CONFIG -------------------------------
 const CONFIG = {
-  // "upstash" : l'EA PnLPusher.mq5 envoie les données (MT5 sur PC/VPS)
-  // "metaapi" : lecture via MetaApi.cloud (MT5 uniquement sur mobile)
-  backend: "upstash",
+  // "myfxbook" : gratuit, 100 % iPhone (compte relié à Myfxbook)
+  // "upstash"  : l'EA PnLPusher.mq5 envoie les données (MT5 sur PC/VPS)
+  // "metaapi"  : lecture via MetaApi.cloud
+  backend: "myfxbook",
 
   upstash: {
     url: "https://VOTRE-BASE.upstash.io",
@@ -32,7 +38,8 @@ const CONFIG = {
     region: "new-york", // voir la région de votre compte dans MetaApi
   },
 
-  staleAfterMin: 5,    // au-delà, les données sont signalées comme anciennes
+  // au-delà (minutes), les données sont signalées comme anciennes (⚠︎)
+  staleAfterMin: { myfxbook: 30, upstash: 5, metaapi: 5 },
   refreshAfterSec: 60, // demande à iOS de rafraîchir (iOS décide au final)
 };
 // ---------------------------------------------------------------------
@@ -92,9 +99,180 @@ async function fetchMetaApi() {
   };
 }
 
+// ----------------------------- MYFXBOOK ------------------------------
+
+const KC = {
+  email: "mt5pnl.myfxbook.email",
+  password: "mt5pnl.myfxbook.password",
+  session: "mt5pnl.myfxbook.session",
+  account: "mt5pnl.myfxbook.account",
+};
+const kcGet = (k) => (Keychain.contains(k) ? Keychain.get(k) : null);
+
+async function mfxCall(method, params) {
+  const qs = Object.entries(params)
+    .map(([k, v]) => {
+      // la session renvoyée par Myfxbook peut déjà être encodée
+      const val = k === "session" && String(v).includes("%") ? v : encodeURIComponent(v);
+      return `${k}=${val}`;
+    })
+    .join("&");
+  const req = new Request(`https://www.myfxbook.com/api/${method}.json?${qs}`);
+  req.timeoutInterval = 15;
+  const json = await req.loadJSON();
+  if (json.error) throw new Error(json.message || `Myfxbook : erreur ${method}`);
+  return json;
+}
+
+async function mfxLogin(email, password) {
+  const res = await mfxCall("login", { email, password });
+  Keychain.set(KC.session, res.session);
+  return res.session;
+}
+
+// Appelle l'API avec la session en cache, se reconnecte une fois si elle a expiré
+async function mfxAuthed(method, params = {}) {
+  let session = kcGet(KC.session);
+  if (session) {
+    try {
+      return await mfxCall(method, { session, ...params });
+    } catch (e) {
+      if (!/session/i.test(e.message)) throw e;
+    }
+  }
+  const email = kcGet(KC.email);
+  const password = kcGet(KC.password);
+  if (!email || !password) throw new Error("ouvrez le script dans Scriptable pour le configurer");
+  session = await mfxLogin(email, password);
+  return mfxCall(method, { session, ...params });
+}
+
+// Myfxbook renvoie "MM/dd/yyyy HH:mm"
+function parseMfxDate(str) {
+  const m = /^(\d{2})\/(\d{2})\/(\d{4}) (\d{2}):(\d{2})/.exec(str || "");
+  const now = Date.now();
+  if (!m) return now;
+  const t = new Date(+m[3], +m[1] - 1, +m[2], +m[4], +m[5]).getTime();
+  return t > now + 5 * 60 * 1000 ? now : t; // fuseau douteux : on prend maintenant
+}
+
+function pickAccount(accounts, wanted) {
+  if (wanted) {
+    const w = wanted.toLowerCase();
+    const hit = accounts.find(
+      (a) => String(a.accountId) === wanted || String(a.id) === wanted || (a.name || "").toLowerCase() === w
+    );
+    if (hit) return hit;
+  }
+  const saved = kcGet(KC.account);
+  return accounts.find((a) => String(a.id) === saved) || accounts[0];
+}
+
+async function fetchMyfxbook(wanted) {
+  const { accounts } = await mfxAuthed("get-my-accounts");
+  if (!accounts || accounts.length === 0) throw new Error("aucun compte sur Myfxbook");
+  const acc = pickAccount(accounts, wanted);
+  const { openTrades = [] } = await mfxAuthed("get-open-trades", { id: acc.id });
+  const positions = openTrades.map((t) => ({
+    sym: t.symbol,
+    side: /buy/i.test(t.action) ? "buy" : "sell",
+    vol: t.sizing ? Number(t.sizing.value) : 0,
+    open: Number(t.openPrice),
+    sl: Number(t.sl),
+    tp: Number(t.tp),
+    pnl: Number(t.profit || 0) + Number(t.swap || 0),
+  }));
+  return {
+    ts: Math.floor(parseMfxDate(acc.lastUpdateDate) / 1000),
+    login: acc.accountId,
+    name: acc.name,
+    currency: acc.currency,
+    balance: Number(acc.balance),
+    equity: Number(acc.equity),
+    floating: Number(acc.equity) - Number(acc.balance),
+    today: null,
+    count: positions.length,
+    positions,
+  };
+}
+
+// Assistant de configuration (lancé depuis l'app Scriptable)
+async function setupMyfxbook() {
+  const a = new Alert();
+  a.title = "Connexion Myfxbook";
+  a.message =
+    "Identifiants de votre compte Myfxbook (pas ceux de MT5). " +
+    "Ils restent dans le trousseau de cet iPhone et ne sont envoyés qu'à myfxbook.com.";
+  a.addTextField("E-mail", kcGet(KC.email) || "");
+  a.addSecureTextField("Mot de passe", "");
+  a.addAction("Se connecter");
+  a.addCancelAction("Annuler");
+  if ((await a.presentAlert()) === -1) return false;
+  const email = a.textFieldValue(0).trim();
+  const password = a.textFieldValue(1);
+
+  try {
+    await mfxLogin(email, password);
+  } catch (e) {
+    const err = new Alert();
+    err.title = "Connexion refusée";
+    err.message = e.message;
+    err.addAction("OK");
+    await err.presentAlert();
+    return false;
+  }
+  Keychain.set(KC.email, email);
+  Keychain.set(KC.password, password);
+
+  const { accounts } = await mfxAuthed("get-my-accounts");
+  if (!accounts || accounts.length === 0) {
+    const none = new Alert();
+    none.title = "Aucun compte";
+    none.message = "Ajoutez d'abord votre compte MT5 sur myfxbook.com (Portfolio › Ajouter un compte).";
+    none.addAction("OK");
+    await none.presentAlert();
+    return false;
+  }
+  let chosen = accounts[0];
+  if (accounts.length > 1) {
+    const pick = new Alert();
+    pick.title = "Quel compte suivre ?";
+    accounts.forEach((acc) => pick.addAction(`${acc.name} (${acc.accountId})`));
+    chosen = accounts[await pick.presentSheet()] || chosen;
+  }
+  Keychain.set(KC.account, String(chosen.id));
+  return true;
+}
+
+async function appMenu() {
+  if (CONFIG.backend !== "myfxbook") return true;
+  if (!kcGet(KC.email)) return setupMyfxbook();
+  const m = new Alert();
+  m.title = "MT5 P&L";
+  m.addAction("Aperçu du widget");
+  m.addAction("Changer d'identifiants / de compte");
+  m.addDestructiveAction("Se déconnecter");
+  m.addCancelAction("Fermer");
+  const r = await m.presentSheet();
+  if (r === 0) return true;
+  if (r === 1) return setupMyfxbook();
+  if (r === 2) {
+    Object.values(KC).forEach((k) => Keychain.contains(k) && Keychain.remove(k));
+    if (fm.fileExists(cachePath)) fm.remove(cachePath);
+  }
+  return false;
+}
+
+// ---------------------------------------------------------------------
+
 async function loadData(key) {
   try {
-    const data = CONFIG.backend === "metaapi" ? await fetchMetaApi() : await fetchUpstash(key);
+    const data =
+      CONFIG.backend === "myfxbook"
+        ? await fetchMyfxbook((args.widgetParameter || "").trim())
+        : CONFIG.backend === "metaapi"
+        ? await fetchMetaApi()
+        : await fetchUpstash(key);
     fm.writeString(cachePath, JSON.stringify(data));
     return { data, error: null };
   } catch (e) {
@@ -130,7 +308,7 @@ const cur = (d) => CURRENCY_SYMBOLS[d.currency] || d.currency || "";
 const pnlColor = (n) =>
   n > 0 ? new Color("#30D158") : n < 0 ? new Color("#FF453A") : Color.gray();
 const arrow = (n) => (n > 0 ? "▲" : n < 0 ? "▼" : "■");
-const isStale = (d) => Date.now() / 1000 - d.ts > CONFIG.staleAfterMin * 60;
+const isStale = (d) => Date.now() / 1000 - d.ts > (CONFIG.staleAfterMin[CONFIG.backend] || 5) * 60;
 
 function addAge(stack, d, font) {
   const t = stack.addDate(new Date(d.ts * 1000));
@@ -280,34 +458,40 @@ function homeWidget(d, error, family) {
 
 // ------------------------------- MAIN --------------------------------
 
-const key = (args.widgetParameter || "").trim() || CONFIG.upstash.key;
-const family = config.widgetFamily || "accessoryRectangular";
-const { data, error } = await loadData(key);
+async function main() {
+  const key = (args.widgetParameter || "").trim() || CONFIG.upstash.key;
+  if (!config.runsInWidget && !(await appMenu())) return;
 
-let widget;
-if (!data) {
-  widget = errorWidget(error || "aucune donnée");
-} else if (family === "accessoryInline") {
-  widget = inlineWidget(data);
-} else if (family === "accessoryCircular") {
-  widget = circularWidget(data);
-} else if (family === "accessoryRectangular") {
-  widget = rectangularWidget(data, error);
-} else {
-  widget = homeWidget(data, error, family);
-}
+  const family = config.widgetFamily || "accessoryRectangular";
+  const { data, error } = await loadData(key);
 
-widget.refreshAfterDate = new Date(Date.now() + CONFIG.refreshAfterSec * 1000);
-
-if (config.runsInWidget) {
-  Script.setWidget(widget);
-} else {
-  // Lancé depuis l'app Scriptable : aperçu
-  if (error) console.warn(error);
-  if (data && typeof widget.presentAccessoryRectangular === "function") {
-    await widget.presentAccessoryRectangular();
+  let widget;
+  if (!data) {
+    widget = errorWidget(error || "aucune donnée");
+  } else if (family === "accessoryInline") {
+    widget = inlineWidget(data);
+  } else if (family === "accessoryCircular") {
+    widget = circularWidget(data);
+  } else if (family === "accessoryRectangular") {
+    widget = rectangularWidget(data, error);
   } else {
-    await widget.presentMedium();
+    widget = homeWidget(data, error, family);
+  }
+
+  widget.refreshAfterDate = new Date(Date.now() + CONFIG.refreshAfterSec * 1000);
+
+  if (config.runsInWidget) {
+    Script.setWidget(widget);
+  } else {
+    // Lancé depuis l'app Scriptable : aperçu
+    if (error) console.warn(error);
+    if (data && typeof widget.presentAccessoryRectangular === "function") {
+      await widget.presentAccessoryRectangular();
+    } else {
+      await widget.presentMedium();
+    }
   }
 }
+
+await main();
 Script.complete();

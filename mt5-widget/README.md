@@ -11,7 +11,24 @@ vos positions MT5, le P&L réalisé du jour, l'équité et le nombre de position
  └───────────────────────────────┘
 ```
 
-## Comment ça marche
+## Démarrage rapide : 100 % iPhone et gratuit (Myfxbook)
+
+C'est le mode par défaut du script. Il n'y a rien à installer sur la VM.
+
+1. Reliez votre compte MT5 à [Myfxbook](https://www.myfxbook.com) (gratuit),
+   avec le **mot de passe investisseur**.
+2. Installez [Scriptable](https://apps.apple.com/app/scriptable/id1405459188),
+   créez un script `MT5 PnL` et collez-y `scriptable/MT5-PnL.js`.
+3. Appuyez sur ▶︎ : le script demande vos identifiants **Myfxbook**, les range
+   dans le trousseau iOS, puis vous fait choisir le compte à suivre.
+4. Ajoutez le widget Scriptable (format rectangulaire) sur l'écran verrouillé
+   et choisissez le script `MT5 PnL`.
+
+Avec Myfxbook, les données ont **5 à 20 min de décalage**, et le P&L du jour
+n'est pas affiché. Pour un suivi plus réactif, passez à l'option A
+ci-dessous (`backend: "upstash"`) quand vous aurez accès à la VM.
+
+## Comment ça marche (option A)
 
 ```
  MT5 (PC / VPS)            Upstash Redis (gratuit)        iPhone
@@ -72,8 +89,8 @@ curl -H "Authorization: Bearer READ_ONLY_TOKEN" https://eu1-xxx-12345.upstash.io
 1. Installez **Scriptable** depuis l'App Store.
 2. Créez un nouveau script (**+**), nommez-le `MT5 PnL`, et collez-y le contenu
    de `scriptable/MT5-PnL.js`.
-3. En haut du script, dans `CONFIG.upstash`, renseignez `url` et `token` (le
-   token **Read-Only**).
+3. En haut du script, mettez `backend: "upstash"`, puis dans `CONFIG.upstash`
+   renseignez `url` et `token` (le token **Read-Only**).
 4. Appuyez sur ▶︎ : un aperçu du widget doit s'afficher.
 5. Sur l'écran de verrouillage, faites un appui long, puis **Personnaliser ›
    Écran verrouillé**. Touchez la zone des widgets, ajoutez **Scriptable**
