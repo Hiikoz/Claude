@@ -17,7 +17,6 @@
 //+------------------------------------------------------------------+
 #property copyright "hiikoz"
 #property version   "1.00"
-#property strict
 
 input string UpstashUrl     = "https://VOTRE-BASE.upstash.io"; // URL REST Upstash (sans / final)
 input string UpstashToken   = "";                               // Token REST Upstash (lecture/écriture)
@@ -37,7 +36,7 @@ int OnInit()
       Print("PnLPusher: renseignez UpstashUrl et UpstashToken dans les paramètres de l'EA.");
       return(INIT_PARAMETERS_INCORRECT);
      }
-   EventSetTimer(MathMax(PushEverySec, 5));
+   EventSetTimer(PushEverySec < 5 ? 5 : PushEverySec);
    Push(true);
    return(INIT_SUCCEEDED);
   }

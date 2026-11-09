@@ -20,10 +20,11 @@
 
 // ------------------------------ CONFIG -------------------------------
 const CONFIG = {
-  // "myfxbook" : gratuit, 100 % iPhone (compte relié à Myfxbook)
+  // "auto"     : MT5 direct (Upstash) si configuré dans l'app, sinon Myfxbook
+  // "myfxbook" : gratuit, 100 % iPhone, mais Myfxbook se met à jour lentement
   // "upstash"  : l'EA PnLPusher.mq5 envoie les données (MT5 sur PC/VPS)
   // "metaapi"  : lecture via MetaApi.cloud
-  backend: "myfxbook",
+  backend: "auto",
 
   upstash: {
     url: "https://VOTRE-BASE.upstash.io",
@@ -51,14 +52,76 @@ const cachePath = fm.joinPath(fm.cacheDirectory(), CACHE_FILE);
 
 // ----------------------------- DONNÉES -------------------------------
 
-async function fetchUpstash(key) {
-  const req = new Request(`${CONFIG.upstash.url}/get/${encodeURIComponent(key)}`);
-  req.headers = { Authorization: `Bearer ${CONFIG.upstash.token}` };
+// Réglages Upstash : trousseau iOS (assistant) en priorité, sinon CONFIG
+const KC_UP = { url: "mt5pnl.upstash.url", token: "mt5pnl.upstash.token" };
+function upCfg() {
+  const has = (k) => Keychain.contains(k);
+  return {
+    url: has(KC_UP.url) ? Keychain.get(KC_UP.url) : CONFIG.upstash.url,
+    token: has(KC_UP.token) ? Keychain.get(KC_UP.token) : CONFIG.upstash.token,
+  };
+}
+
+function activeBackend() {
+  if (CONFIG.backend !== "auto") return CONFIG.backend;
+  return Keychain.contains(KC_UP.url) ? "upstash" : "myfxbook";
+}
+
+async function fetchUpstashWith(url, token, key) {
+  const req = new Request(`${url}/get/${encodeURIComponent(key)}`);
+  req.headers = { Authorization: `Bearer ${token}` };
   req.timeoutInterval = 10;
   const res = await req.loadJSON();
   if (res.error) throw new Error(res.error);
-  if (!res.result) throw new Error(`Clé "${key}" vide : l'EA tourne-t-il ?`);
+  if (!res.result) throw new Error("aucune donnée reçue de MT5 : l'EA tourne-t-il ?");
   return JSON.parse(res.result);
+}
+
+async function fetchUpstash(key) {
+  const { url, token } = upCfg();
+  return fetchUpstashWith(url, token, key);
+}
+
+// Assistant : connexion directe à MT5 via Upstash
+async function setupUpstash() {
+  const a = new Alert();
+  a.title = "MT5 direct (Upstash)";
+  a.message =
+    "Collez l'URL REST et le token « Read-Only » de votre base Upstash " +
+    "(console.upstash.com › votre base › REST API).";
+  a.addTextField("https://xxx.upstash.io", Keychain.contains(KC_UP.url) ? Keychain.get(KC_UP.url) : "");
+  a.addSecureTextField("Token Read-Only", "");
+  a.addAction("Connecter");
+  a.addCancelAction("Annuler");
+  if ((await a.presentAlert()) === -1) return false;
+
+  let url = a.textFieldValue(0).trim().replace(/\/+$/, "");
+  if (url && !/^https?:\/\//.test(url)) url = "https://" + url;
+  const token = a.textFieldValue(1).trim();
+
+  const info = new Alert();
+  info.addAction("OK");
+  try {
+    const d = await fetchUpstashWith(url, token, CONFIG.upstash.key);
+    Keychain.set(KC_UP.url, url);
+    Keychain.set(KC_UP.token, token);
+    const age = Math.round(Date.now() / 1000 - d.ts);
+    info.title = "Connecté ✓";
+    info.message =
+      `Compte ${d.login} · ${d.count} position(s)\n` +
+      `Équité ${d.equity} ${d.currency}\n` +
+      `Dernier envoi de MT5 : il y a ${age} s`;
+    await info.presentAlert();
+    return true;
+  } catch (e) {
+    info.title = "Connexion impossible";
+    info.message =
+      e.message +
+      "\n\nVérifiez l'URL et le token. Si le message parle de données absentes, " +
+      "l'EA n'a encore rien envoyé : regardez l'onglet Experts de MT5.";
+    await info.presentAlert();
+    return false;
+  }
 }
 
 async function fetchMetaApi() {
@@ -270,12 +333,32 @@ async function setupMyfxbook() {
 
 async function diagnostic() {
   const a = new Alert();
-  a.title = "Diagnostic Myfxbook";
+  a.title = "Diagnostic " + (activeBackend() === "upstash" ? "MT5 direct" : "Myfxbook");
+  const fmtT = (t) => (t ? new Date(t).toLocaleString("fr-FR") : "?");
+  const st = readStatus();
+  const common =
+    `Heure de l'iPhone : ${fmtT(Date.now())}\n` +
+    `Dernière actualisation du widget : ${fmtT(st.lastOk)}\n` +
+    `Exécutions comptées : ${st.runs || 0}\n` +
+    `Dernière erreur : ${st.lastError || "aucune"}`;
+  if (activeBackend() === "upstash") {
+    try {
+      const d = await fetchUpstash(CONFIG.upstash.key);
+      a.message =
+        `Compte : ${d.login}\nDernier envoi de MT5 : ${fmtT(d.ts * 1000)}\n` +
+        `Positions : ${d.count} · Équité : ${d.equity} ${d.currency}\n` + common;
+    } catch (e) {
+      a.message = "Erreur : " + e.message + "\n" + common;
+    }
+    a.addAction("Copier");
+    a.addCancelAction("OK");
+    if ((await a.presentAlert()) === 0) Pasteboard.copy(a.message);
+    return;
+  }
   try {
     const { accounts } = await mfxAuthed("get-my-accounts");
     const acc = pickAccount(accounts, (args.widgetParameter || "").trim());
     const src = parseMfxDate(acc.lastUpdateDate);
-    const fmtT = (t) => (t ? new Date(t).toLocaleString("fr-FR") : "?");
     a.message =
       `Compte : ${acc.name} (${acc.accountId})\n` +
       `Date Myfxbook brute : ${acc.lastUpdateDate}\n` +
@@ -294,26 +377,47 @@ async function diagnostic() {
 }
 
 async function appMenu() {
-  if (CONFIG.backend !== "myfxbook") return true;
-  if (!kcGet(KC.email)) return setupMyfxbook();
-  const m = new Alert();
-  m.title = "MT5 P&L";
-  m.addAction("Aperçu du widget");
-  m.addAction("Changer d'identifiants / de compte");
-  m.addAction("Diagnostic");
-  m.addDestructiveAction("Se déconnecter");
-  m.addCancelAction("Fermer");
-  const r = await m.presentSheet();
-  if (r === 0) return true;
-  if (r === 1) return setupMyfxbook();
-  if (r === 2) {
-    await diagnostic();
+  if (CONFIG.backend === "metaapi") return true;
+  if (CONFIG.backend === "upstash" && !Keychain.contains(KC_UP.url) && /VOTRE-BASE/.test(CONFIG.upstash.url)) {
+    return setupUpstash();
+  }
+  const b = activeBackend();
+  if (b === "myfxbook" && !kcGet(KC.email)) {
+    const first = new Alert();
+    first.title = "D'où viennent les chiffres ?";
+    first.addAction("MT5 direct (EA + Upstash) · rapide");
+    first.addAction("Myfxbook · lent");
+    first.addCancelAction("Annuler");
+    const c = await first.presentSheet();
+    if (c === 0) return setupUpstash();
+    if (c === 1) return setupMyfxbook();
     return false;
   }
-  if (r === 3) {
-    Object.values(KC).forEach((k) => Keychain.contains(k) && Keychain.remove(k));
-    if (fm.fileExists(cachePath)) fm.remove(cachePath);
+
+  const m = new Alert();
+  m.title = "MT5 P&L";
+  m.message = b === "upstash" ? "Source : MT5 direct (Upstash)" : "Source : Myfxbook";
+  const actions = [["Aperçu du widget", async () => true]];
+  if (b === "upstash") {
+    actions.push(["Modifier la connexion Upstash", setupUpstash]);
+    actions.push(["Revenir à Myfxbook", async () => {
+      Keychain.remove(KC_UP.url);
+      Keychain.remove(KC_UP.token);
+      return kcGet(KC.email) ? true : setupMyfxbook();
+    }]);
+  } else {
+    actions.push(["Passer en MT5 direct (Upstash)", setupUpstash]);
+    actions.push(["Changer d'identifiants / de compte", setupMyfxbook]);
   }
+  actions.push(["Diagnostic", async () => { await diagnostic(); return false; }]);
+  actions.forEach(([label]) => m.addAction(label));
+  m.addDestructiveAction("Tout effacer (déconnexion)");
+  m.addCancelAction("Fermer");
+  const r = await m.presentSheet();
+  if (r === -1) return false;
+  if (r < actions.length) return actions[r][1]();
+  Object.values(KC).concat(Object.values(KC_UP)).forEach((k) => Keychain.contains(k) && Keychain.remove(k));
+  if (fm.fileExists(cachePath)) fm.remove(cachePath);
   return false;
 }
 
@@ -336,10 +440,11 @@ function writeStatus(st) {
 
 async function loadData(key) {
   try {
+    const backend = activeBackend();
     const data =
-      CONFIG.backend === "myfxbook"
+      backend === "myfxbook"
         ? await fetchMyfxbook((args.widgetParameter || "").trim())
-        : CONFIG.backend === "metaapi"
+        : backend === "metaapi"
         ? await fetchMetaApi()
         : await fetchUpstash(key);
     data.fetchedAt = Date.now();
@@ -380,7 +485,7 @@ const cur = (d) => CURRENCY_SYMBOLS[d.currency] || d.currency || "";
 const pnlColor = (n) =>
   n > 0 ? new Color("#30D158") : n < 0 ? new Color("#FF453A") : Color.gray();
 const arrow = (n) => (n > 0 ? "▲" : n < 0 ? "▼" : "■");
-const isStale = (d) => Date.now() / 1000 - d.ts > (CONFIG.staleAfterMin[CONFIG.backend] || 5) * 60;
+const isStale = (d) => Date.now() / 1000 - d.ts > (CONFIG.staleAfterMin[activeBackend()] || 5) * 60;
 
 const pad = (n) => String(n).padStart(2, "0");
 const hm = (ms) => {
