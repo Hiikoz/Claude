@@ -68,13 +68,63 @@ function activeBackend() {
 }
 
 async function fetchUpstashWith(url, token, key) {
+  if (!/^https:\/\/[a-z0-9.-]+$/i.test(url || "")) {
+    throw new Error(`URL invalide : « ${url} ». Attendu : https://xxx.upstash.io`);
+  }
+  if (!token) throw new Error("token vide");
   const req = new Request(`${url}/get/${encodeURIComponent(key)}`);
   req.headers = { Authorization: `Bearer ${token}` };
   req.timeoutInterval = 10;
-  const res = await req.loadJSON();
-  if (res.error) throw new Error(res.error);
-  if (!res.result) throw new Error("aucune donnée reçue de MT5 : l'EA tourne-t-il ?");
-  return JSON.parse(res.result);
+  let text;
+  try {
+    text = await req.loadString();
+  } catch (e) {
+    throw new Error(`serveur injoignable (${url}) : vérifiez l'URL. Détail : ${e.message}`);
+  }
+  const code = req.response ? req.response.statusCode : 0;
+  let res = {};
+  try {
+    res = JSON.parse(text);
+  } catch (e) {}
+  if (code === 401 || code === 403 || /WRONGPASS|unauthori/i.test(res.error || "")) {
+    throw new Error(`token refusé (HTTP ${code}) : collez le token Read-Only complet. Détail : ${res.error || text}`);
+  }
+  if (res.error) throw new Error(`Upstash : ${res.error} (HTTP ${code})`);
+  if (code >= 400) throw new Error(`HTTP ${code} : ${String(text).slice(0, 120)}`);
+  if (!res.result) {
+    throw new Error(`connexion OK, mais la clé « ${key} » est vide : l'EA envoie-t-il bien sur cette base ?`);
+  }
+  try {
+    return JSON.parse(res.result);
+  } catch (e) {
+    throw new Error(`données illisibles dans « ${key} » : ${String(res.result).slice(0, 80)}`);
+  }
+}
+
+// Nettoie ce qui a été collé : accepte la valeur seule, une ligne .env
+// (UPSTASH_REDIS_REST_URL="…"), une commande curl, des guillemets, des espaces…
+function cleanUpstashInput(urlRaw, tokenRaw) {
+  const all = `${urlRaw || ""}\n${tokenRaw || ""}`;
+  // le nom d'hôte Upstash suffit (même s'il vient d'une adresse redis://user:mdp@hôte:6379)
+  const host = /(?:^|[\/@\s"'=])([a-z0-9-]+(?:\.[a-z0-9-]+)*\.upstash\.io)/i.exec(all);
+  let url = host ? "https://" + host[1] : (urlRaw || "").trim();
+  url = url.replace(/^http:/i, "https:").replace(/\/+$/, "");
+  if (url && !/^https:\/\//i.test(url)) url = "https://" + url;
+  url = url.replace(/^https:\/\//i, "https://").toLowerCase();
+
+  const pick = (txt) => {
+    if (!txt) return "";
+    let t = txt;
+    const env = /UPSTASH_REDIS_REST(?:_READONLY)?_TOKEN\s*=\s*["']?([^"'\s]+)/i.exec(t);
+    if (env) return env[1];
+    const bearer = /Bearer\s+([^"'\s]+)/i.exec(t);
+    if (bearer) return bearer[1];
+    return t.replace(/["'\s]/g, "");
+  };
+  let token = pick(tokenRaw);
+  // tout collé dans le premier champ (bloc .env) ?
+  if (!token || /upstash\.io/i.test(token)) token = pick(/TOKEN|Bearer/i.test(urlRaw || "") ? urlRaw : "");
+  return { url, token };
 }
 
 async function fetchUpstash(key) {
@@ -95,9 +145,7 @@ async function setupUpstash() {
   a.addCancelAction("Annuler");
   if ((await a.presentAlert()) === -1) return false;
 
-  let url = a.textFieldValue(0).trim().replace(/\/+$/, "");
-  if (url && !/^https?:\/\//.test(url)) url = "https://" + url;
-  const token = a.textFieldValue(1).trim();
+  const { url, token } = cleanUpstashInput(a.textFieldValue(0), a.textFieldValue(1));
 
   const info = new Alert();
   info.addAction("OK");
@@ -117,8 +165,7 @@ async function setupUpstash() {
     info.title = "Connexion impossible";
     info.message =
       e.message +
-      "\n\nVérifiez l'URL et le token. Si le message parle de données absentes, " +
-      "l'EA n'a encore rien envoyé : regardez l'onglet Experts de MT5.";
+      `\n\nURL utilisée : ${url}\nToken : ${token ? token.slice(0, 4) + "…" + token.slice(-4) + " (" + token.length + " caractères)" : "vide"}`;
     await info.presentAlert();
     return false;
   }
