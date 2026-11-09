@@ -92,7 +92,7 @@ curl -H "Authorization: Bearer READ_ONLY_TOKEN" https://eu1-xxx-12345.upstash.io
 3. Appuyez sur ▶︎, puis **Passer en MT5 direct (Upstash)**. Collez l'URL et
    le token **Read-Only**. Le script teste la connexion, puis range les
    réglages dans le trousseau iOS : rien à modifier dans le code.
-5. Sur l'écran de verrouillage, faites un appui long, puis **Personnaliser ›
+4. Sur l'écran de verrouillage, faites un appui long, puis **Personnaliser ›
    Écran verrouillé**. Touchez la zone des widgets, ajoutez **Scriptable**
    (format **rectangulaire** conseillé), touchez-le, puis choisissez le script
    `MT5 PnL`.
