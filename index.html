@@ -333,8 +333,8 @@
   <input class="field" id="tmdbKey" type="text" placeholder="Clé TMDB" autocomplete="off" autocapitalize="off" spellcheck="false">
   <button type="button" class="primary" id="tmdbSave">Enregistrer la clé</button>
 
-  <h3 style="margin:18px 4px 8px;font-size:17px">Nouveautés des séries</h3>
-  <p class="hint">L'app vérifie toute seule (deux fois par jour) si tes séries ont une nouvelle saison ou un prochain épisode.</p>
+  <h3 style="margin:18px 4px 8px;font-size:17px">Nouveautés</h3>
+  <p class="hint">L'app vérifie toute seule si tes séries ont une nouvelle saison, et si une suite est annoncée ou sort pour tes films.</p>
   <button type="button" class="primary" id="checkNowBtn" style="background:var(--card);color:var(--accent)">Vérifier maintenant</button>
 
   <h3 style="margin:18px 4px 8px;font-size:17px">Sauvegarde</h3>
@@ -435,7 +435,7 @@
     }
     const nNews = items.filter(i => newsOf(i)).length;
     $('#banner').innerHTML = nNews && filter !== 'news'
-      ? `<button class="banner" data-f="news">🔔 Du nouveau pour ${nNews} série${nNews > 1 ? 's' : ''} — voir</button>` : '';
+      ? `<button class="banner" data-f="news">🔔 ${nNews} nouveauté${nNews > 1 ? 's' : ''} — voir</button>` : '';
     $('#viewBtn').textContent = view === 'grid' ? '☰ Liste' : '▦ Affiches';
     $('#list').classList.toggle('grid', view === 'grid' && list.length > 0);
     $('#list').innerHTML = list.map(it => view === 'grid' ? tileHTML(it) : rowHTML(it)).join('');
@@ -485,8 +485,73 @@
   try { const s = localStorage.getItem(KEY + '.sort'); if (s) $('#sort').value = s; } catch {}
 
 
+  // ---------- Nouveautés des films (suites annoncées dans une saga TMDB) ----------
+  const SAGA_KEY = KEY + '.sagas';
+  let sagas = {};
+  try { sagas = JSON.parse(localStorage.getItem(SAGA_KEY)) || {}; } catch {}
+  const saveSagas = () => { try { localStorage.setItem(SAGA_KEY, JSON.stringify(sagas)); } catch {} };
+  const partState = p => (p.date && p.date <= today()) ? 'd' : 'a';
+  const ownsFilm = id => items.some(i => i.type === 'film' && i.ext?.src === 'tmdb' && i.ext.id === id);
+  function filmNews(it) {
+    const cid = it.collection?.id, S = sagas[cid];
+    if (!S?.known || !S.parts) return null;
+    const list = S.parts.filter(p => !ownsFilm(p.id) && S.known[p.id] !== partState(p));
+    if (!list.length) return null;
+    // une seule alerte par saga : sur le film le plus récent de la saga
+    const rep = items.filter(i => i.type === 'film' && i.collection?.id === cid)
+      .sort((a, b) => (b.year || 0) - (a.year || 0) || b.createdAt - a.createdAt)[0];
+    if (rep !== it) return null;
+    const p = list[0];
+    return {
+      film: true, cid, parts: list, part: p,
+      text: (partState(p) === 'd'
+        ? `« ${p.title} » est sorti !`
+        : `Suite annoncée : « ${p.title} »${p.date ? ' pour le ' + fmtDate(p.date) : ''}`)
+        + (list.length > 1 ? ` (+${list.length - 1} autre${list.length > 2 ? 's' : ''})` : ''),
+    };
+  }
+  async function refreshFilms(force) {
+    if (!getKey()) return 0;
+    const films = items.filter(i => i.type === 'film' && i.ext?.src === 'tmdb');
+    let n = 0;
+    // 1) savoir si chaque film fait partie d'une saga (vérifié tous les 3 jours :
+    //    quand une suite est annoncée, TMDB crée la saga et y range le film)
+    const todo = films.filter(i => force || !i.colCheckedAt || Date.now() - i.colCheckedAt > 3 * 86400e3).slice(0, force ? 300 : 40);
+    for (const it of todo) {
+      try {
+        const d = await tmdb('/movie/' + it.ext.id, { language: 'fr-FR' });
+        const c = d.belongs_to_collection;
+        if (c) {
+          it.collection = { id: c.id, name: c.name };
+          // saga apparue après coup : les autres films de la saga sont des nouveautés
+          if (!sagas[c.id]) sagas[c.id] = { name: c.name, known: null, ownedOnly: !!it.colCheckedAt };
+        }
+        it.colCheckedAt = Date.now(); n++;
+      } catch {}
+    }
+    // 2) regarder les films de chaque saga (toutes les 12 h)
+    const cids = [...new Set(films.map(i => i.collection?.id).filter(Boolean))];
+    for (const cid of cids) {
+      const S = sagas[cid] || (sagas[cid] = { known: null });
+      if (!force && S.checkedAt && Date.now() - S.checkedAt < 12 * 3600e3) continue;
+      try {
+        const c = await tmdb('/collection/' + cid, { language: 'fr-FR' });
+        S.name = c.name;
+        S.parts = (c.parts || []).map(p => ({ id: p.id, title: p.title, date: p.release_date || '' }));
+        if (!S.known) {
+          S.known = {};
+          S.parts.forEach(p => { if (!S.ownedOnly || ownsFilm(p.id)) S.known[p.id] = partState(p); });
+        }
+        S.checkedAt = Date.now(); n++;
+      } catch {}
+    }
+    saveSagas();
+    return n;
+  }
+
   // ---------- Nouveautés des séries ----------
   function newsOf(it) {
+    if (it.type === 'film') return filmNews(it);
     const L = it.live;
     if (it.type !== 'serie' || !L || !it.seasonsTotal) return null;
     const latest = Math.max(L.seasons || 0, L.next?.s || 0);
@@ -517,6 +582,7 @@
         n++;
       } catch {}
     }
+    try { n += await refreshFilms(force); } catch {}
     refreshing = false;
     if (n) { save(); renderFilters(); render(); }
     return n;
@@ -525,7 +591,7 @@
     toast('Vérification…');
     const n = await refreshSeries(true);
     const k = items.filter(i => newsOf(i)).length;
-    toast(n ? (k ? `🔔 Du nouveau pour ${k} série${k > 1 ? 's' : ''}` : 'Rien de nouveau pour l’instant') : 'Aucune série liée à vérifier');
+    toast(n ? (k ? `🔔 ${k} nouveauté${k > 1 ? 's' : ''}` : 'Rien de nouveau pour l’instant') : 'Rien à vérifier (ajoute tes titres avec 🔍)');
   });
 
   // ---------- Fiche détaillée ----------
@@ -582,7 +648,9 @@
           ${x.vote ? `<span class="dvote">TMDB ${String(x.vote).replace('.', ',')}/10</span>` : ''}
         </div>
       </div>
-      ${news ? `<div class="alert">🔔 ${esc(news.text)}<br><button id="ackBtn">C'est noté</button></div>` : ''}
+      ${news ? `<div class="alert">🔔 ${esc(news.text)}<br>
+        ${news.film ? `<button id="addPartBtn">Ajouter « ${esc(news.part.title)} » à voir</button> ` : ''}
+        <button id="ackBtn"${news.film ? ' style="background:var(--card);color:var(--accent)"' : ''}>C'est noté</button></div>` : ''}
       ${trailerBtn}
       ${progress}
       ${liveSec}
@@ -611,6 +679,25 @@
   }
   $('#detail').addEventListener('click', e => {
     const it = current; if (!it) return;
+    if (e.target.id === 'ackBtn' && newsOf(it)?.film) {
+      const n = newsOf(it), S = sagas[n.cid];
+      n.parts.forEach(p => { S.known[p.id] = partState(p); });
+      saveSagas(); renderFilters(); render(); renderDetail();
+      return;
+    }
+    if (e.target.id === 'addPartBtn') {
+      const n = newsOf(it); if (!n?.film) return;
+      e.target.disabled = true; e.target.textContent = 'Ajout…';
+      details({ src: 'tmdb', id: n.part.id }, 'film').then(d => {
+        items.push({ id: uid(), createdAt: Date.now(), type: 'film', status: 'avoir', rating: 0, date: '',
+          season: '', episode: '', seasonsTotal: '', episodesTotal: '', notes: '', colCheckedAt: Date.now(), ...d,
+          collection: d.collection || { id: n.cid, name: sagas[n.cid]?.name || '' } });
+        sagas[n.cid].known[n.part.id] = partState(n.part);
+        save(); saveSagas(); renderFilters(); render(); renderDetail();
+        toast(`« ${n.part.title} » ajouté à voir ✓`);
+      }).catch(err => { toast(err.message); renderDetail(); });
+      return;
+    }
     if (e.target.id === 'ackBtn') {
       const n = newsOf(it);
       if (n) {
@@ -935,7 +1022,7 @@
       const d = await details(found[b.dataset.i], form.type);
       if (seq !== lookupSeq) return;
       Object.entries(d).forEach(([k, v]) => { if (!['ext', 'extra', 'live', 'collection'].includes(k) && v !== '' && v != null && $(`#f-${k}`)) $(`#f-${k}`).value = v; });
-      form.ext = d.ext; form.extra = d.extra; form.live = d.live;
+      form.ext = d.ext; form.extra = d.extra; form.live = d.live; form.collection = d.collection || null;
       hideSuggest();
       document.activeElement?.blur();
       toast('Infos remplies ✓');
@@ -968,10 +1055,15 @@
         if (items.some(it => it.ext?.src === 'tmdb' && it.ext.id === p.id && it.type === 'film')) continue;
         showMsg(`Ajout des films… ${i}/${parts.length}`);
         const d = await details({ src: 'tmdb', id: p.id }, 'film');
-        const { collection, ...rest } = d;
         items.push({ id: uid(), createdAt: Date.now() + i, type: 'film', status, rating: 0, date: '',
-          season: '', episode: '', seasonsTotal: '', episodesTotal: '', notes: '', ...rest });
+          season: '', episode: '', seasonsTotal: '', episodesTotal: '', notes: '', colCheckedAt: Date.now(), ...d });
         added++;
+      }
+      if (!sagas[sagaId]?.known) {
+        sagas[sagaId] = { name: c.name, checkedAt: Date.now(), known: {},
+          parts: (c.parts || []).map(p => ({ id: p.id, title: p.title, date: p.release_date || '' })) };
+        sagas[sagaId].parts.forEach(p => { sagas[sagaId].known[p.id] = partState(p); });
+        saveSagas();
       }
       save(); renderFilters(); render(); closeSheets();
       toast(added ? `${added} film${added > 1 ? 's' : ''} ajouté${added > 1 ? 's' : ''} ✓` : 'Toute la saga est déjà là');
@@ -1008,7 +1100,7 @@
     $('#deleteBtn').style.display = it ? '' : 'none';
     const d = it || { type: 'film', status: 'vu', rating: 0, date: new Date().toISOString().slice(0, 10) };
     FIELDS.forEach(f => $(`#f-${f}`).value = d[f] ?? '');
-    form.ext = d.ext || null; form.extra = d.extra || null; form.live = d.live || null;
+    form.ext = d.ext || null; form.extra = d.extra || null; form.live = d.live || null; form.collection = d.collection || null;
     hideSuggest();
     setSeg('type', d.type); setSeg('status', d.status); setRating(d.rating || 0);
     openSheet($('#editSheet'));
@@ -1021,7 +1113,7 @@
     const data = { type: form.type, status: form.status, rating: form.rating || 0 };
     FIELDS.forEach(f => data[f] = $(`#f-${f}`).value.trim());
     NUMERIC.forEach(f => data[f] = data[f] ? Number(data[f]) : '');
-    if (form.ext) { data.ext = form.ext; data.extra = form.extra; data.live = form.live; }
+    if (form.ext) { data.ext = form.ext; data.extra = form.extra; data.live = form.live; data.collection = form.collection; }
     if (!data.title) return;
     if (editing) Object.assign(editing, data, { updatedAt: Date.now() });
     else items.push({ id: uid(), createdAt: Date.now(), ...data });
