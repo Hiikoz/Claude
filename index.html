@@ -1,0 +1,426 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Ma Vidéothèque</title>
+<meta name="description" content="Mes films et séries regardés">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Vidéothèque">
+<meta name="theme-color" content="#0f1115">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" type="image/png" href="icon-512.png">
+<link rel="manifest" href="manifest.webmanifest">
+<style>
+  :root {
+    --bg: #f4f4f7;
+    --card: #ffffff;
+    --text: #15171c;
+    --muted: #6b7080;
+    --line: #e3e4ea;
+    --accent: #e5484d;
+    --accent-soft: #fde8e9;
+    --star: #f5a524;
+    --chip: #ececf1;
+    --shadow: 0 1px 2px rgba(0,0,0,.06), 0 4px 14px rgba(0,0,0,.05);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1115;
+      --card: #1a1d24;
+      --text: #f1f2f5;
+      --muted: #9097a6;
+      --line: #2a2e38;
+      --accent: #ff6369;
+      --accent-soft: #3a1f22;
+      --chip: #262a33;
+      --shadow: none;
+    }
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); }
+  body {
+    font: 16px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+    padding: env(safe-area-inset-top) 0 calc(env(safe-area-inset-bottom) + 90px);
+    min-height: 100vh;
+  }
+  button, input, select, textarea { font: inherit; color: inherit; }
+  .wrap { max-width: 640px; margin: 0 auto; padding: 0 16px; }
+
+  header { position: sticky; top: 0; z-index: 5; background: var(--bg); padding: 14px 0 10px; }
+  h1 { font-size: 30px; font-weight: 800; margin: 6px 0 2px; letter-spacing: -.5px; }
+  .stats { color: var(--muted); font-size: 14px; margin-bottom: 12px; }
+  .search {
+    width: 100%; border: 0; border-radius: 12px; padding: 11px 14px;
+    background: var(--chip); outline: none; font-size: 16px;
+  }
+  .filters { display: flex; gap: 8px; margin-top: 10px; overflow-x: auto; scrollbar-width: none; }
+  .filters::-webkit-scrollbar { display: none; }
+  .chip {
+    flex: none; border: 0; border-radius: 999px; padding: 7px 14px; background: var(--chip);
+    font-size: 14px; font-weight: 600; cursor: pointer;
+  }
+  .chip.on { background: var(--accent); color: #fff; }
+  .sortrow { display: flex; justify-content: flex-end; margin-top: 8px; }
+  .sortrow select { border: 0; background: transparent; color: var(--muted); font-size: 14px; }
+
+  .list { display: grid; gap: 10px; margin-top: 6px; }
+  .item {
+    display: flex; gap: 12px; align-items: center; background: var(--card); border-radius: 14px;
+    padding: 12px; box-shadow: var(--shadow); cursor: pointer; border: 0; text-align: left; width: 100%;
+  }
+  .poster {
+    flex: none; width: 52px; height: 74px; border-radius: 8px; display: grid; place-items: center;
+    font-weight: 800; font-size: 22px; color: #fff; overflow: hidden; background-size: cover; background-position: center;
+  }
+  .meta { min-width: 0; flex: 1; }
+  .title { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sub { color: var(--muted); font-size: 13px; margin-top: 2px; }
+  .stars { color: var(--star); font-size: 14px; letter-spacing: 1px; margin-top: 3px; }
+  .badge {
+    display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 6px;
+    background: var(--accent-soft); color: var(--accent); margin-right: 6px; text-transform: uppercase; letter-spacing: .3px;
+  }
+  .empty { text-align: center; color: var(--muted); padding: 60px 20px; }
+  .empty .big { font-size: 48px; }
+
+  .fab {
+    position: fixed; right: 20px; bottom: calc(env(safe-area-inset-bottom) + 20px); z-index: 10;
+    width: 60px; height: 60px; border-radius: 50%; border: 0; background: var(--accent); color: #fff;
+    font-size: 32px; line-height: 1; box-shadow: 0 6px 20px rgba(229,72,77,.45); cursor: pointer;
+  }
+  .menu-btn { float: right; margin-top: 10px; border: 0; background: transparent; color: var(--accent); font-weight: 600; cursor: pointer; }
+
+  /* Sheet */
+  .backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.4); z-index: 20; display: none; }
+  .backdrop.show { display: block; }
+  .sheet {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 21; background: var(--bg);
+    border-radius: 18px 18px 0 0; max-height: 92vh; overflow-y: auto;
+    padding: 8px 16px calc(env(safe-area-inset-bottom) + 20px);
+    transform: translateY(100%); transition: transform .25s ease;
+    max-width: 640px; margin: 0 auto;
+  }
+  .sheet.show { transform: translateY(0); }
+  .grab { width: 40px; height: 5px; border-radius: 3px; background: var(--line); margin: 4px auto 10px; }
+  .sheet-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+  .sheet-head h2 { margin: 0; font-size: 20px; }
+  .link { border: 0; background: transparent; color: var(--accent); font-weight: 600; font-size: 16px; cursor: pointer; padding: 6px 0; }
+  .group { background: var(--card); border-radius: 12px; padding: 4px 14px; margin-bottom: 14px; }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .row:last-child { border-bottom: 0; }
+  .row label { flex: none; font-size: 15px; }
+  .row input, .row select, .row textarea {
+    flex: 1; min-width: 0; border: 0; background: transparent; text-align: right; outline: none; font-size: 16px;
+  }
+  .row textarea { text-align: left; resize: vertical; min-height: 70px; }
+  .row.col { flex-direction: column; align-items: stretch; }
+  .row.col label { margin-bottom: 4px; }
+  .seg { display: flex; background: var(--chip); border-radius: 9px; padding: 2px; flex: 1; }
+  .seg button { flex: 1; border: 0; background: transparent; padding: 6px 4px; border-radius: 7px; font-size: 14px; font-weight: 600; cursor: pointer; }
+  .seg button.on { background: var(--accent); color: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.15); }
+  .rate { display: flex; gap: 4px; }
+  .rate button { border: 0; background: transparent; font-size: 28px; color: var(--line); cursor: pointer; padding: 0 2px; }
+  .rate button.on { color: var(--star); }
+  .series-only { display: none; }
+  .is-series .series-only { display: flex; }
+  .danger { width: 100%; border: 0; border-radius: 12px; padding: 13px; background: var(--card); color: var(--accent); font-weight: 600; cursor: pointer; }
+  .primary { width: 100%; border: 0; border-radius: 12px; padding: 13px; background: var(--accent); color: #fff; font-weight: 700; cursor: pointer; margin-bottom: 10px; }
+  .hint { color: var(--muted); font-size: 13px; margin: 0 4px 14px; }
+  .toast {
+    position: fixed; left: 50%; bottom: calc(env(safe-area-inset-bottom) + 96px); transform: translateX(-50%);
+    background: var(--text); color: var(--bg); padding: 10px 16px; border-radius: 10px; font-size: 14px;
+    opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 30;
+  }
+  .toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <button class="menu-btn" id="menuBtn">Sauvegarde</button>
+    <h1>Ma Vidéothèque</h1>
+    <div class="stats" id="stats"></div>
+    <input class="search" id="search" type="search" placeholder="Rechercher un titre, un genre…" autocomplete="off">
+    <div class="filters" id="filters"></div>
+    <div class="sortrow">
+      <select id="sort" aria-label="Trier">
+        <option value="recent">Ajout récent</option>
+        <option value="watched">Date de visionnage</option>
+        <option value="title">Titre (A→Z)</option>
+        <option value="rating">Meilleure note</option>
+        <option value="year">Année de sortie</option>
+      </select>
+    </div>
+  </header>
+  <main class="list" id="list"></main>
+</div>
+
+<button class="fab" id="addBtn" aria-label="Ajouter">+</button>
+
+<div class="backdrop" id="backdrop"></div>
+
+<!-- Fiche ajout / modification -->
+<form class="sheet" id="editSheet" autocomplete="off">
+  <div class="grab"></div>
+  <div class="sheet-head">
+    <button type="button" class="link" data-close>Annuler</button>
+    <h2 id="editTitle">Ajouter</h2>
+    <button type="submit" class="link">OK</button>
+  </div>
+
+  <div class="group">
+    <div class="row"><input id="f-title" placeholder="Titre" style="text-align:left;font-weight:600" required></div>
+    <div class="row"><div class="seg" id="f-type">
+      <button type="button" data-v="film">🎬 Film</button>
+      <button type="button" data-v="serie">📺 Série</button>
+    </div></div>
+    <div class="row"><div class="seg" id="f-status">
+      <button type="button" data-v="vu">Vu</button>
+      <button type="button" data-v="encours">En cours</button>
+      <button type="button" data-v="avoir">À voir</button>
+    </div></div>
+  </div>
+
+  <div class="group">
+    <div class="row"><label>Note</label><div class="rate" id="f-rating"></div></div>
+    <div class="row"><label for="f-date">Vu le</label><input id="f-date" type="date"></div>
+    <div class="row"><label for="f-year">Année de sortie</label><input id="f-year" type="number" inputmode="numeric" min="1880" max="2100" placeholder="—"></div>
+    <div class="row"><label for="f-genre">Genre</label><input id="f-genre" placeholder="Ex. Thriller"></div>
+    <div class="row"><label for="f-platform">Où</label><input id="f-platform" placeholder="Netflix, cinéma…"></div>
+    <div class="row series-only"><label for="f-season">Saison</label><input id="f-season" type="number" inputmode="numeric" min="0" placeholder="—"></div>
+    <div class="row series-only"><label for="f-episode">Épisode</label><input id="f-episode" type="number" inputmode="numeric" min="0" placeholder="—"></div>
+    <div class="row"><label for="f-poster">Affiche (lien)</label><input id="f-poster" type="url" inputmode="url" placeholder="https://…"></div>
+  </div>
+
+  <div class="group">
+    <div class="row col"><label for="f-notes">Mon avis</label><textarea id="f-notes" placeholder="Ce que j'en ai pensé…"></textarea></div>
+  </div>
+
+  <button type="button" class="danger" id="deleteBtn">Supprimer</button>
+</form>
+
+<!-- Fiche sauvegarde -->
+<div class="sheet" id="backupSheet">
+  <div class="grab"></div>
+  <div class="sheet-head">
+    <span></span><h2>Sauvegarde</h2>
+    <button type="button" class="link" data-close>Fermer</button>
+  </div>
+  <p class="hint">Tes films et séries sont enregistrés sur ton iPhone. Exporte un fichier de temps en temps (dans Fichiers ou iCloud Drive) pour ne jamais les perdre.</p>
+  <button type="button" class="primary" id="exportBtn">Exporter mes données</button>
+  <button type="button" class="primary" id="importBtn" style="background:var(--card);color:var(--accent)">Importer un fichier</button>
+  <input type="file" id="importFile" accept="application/json,.json" hidden>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(() => {
+  const KEY = 'videotheque.v1';
+  const $ = (s) => document.querySelector(s);
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const STATUS = { vu: 'Vu', encours: 'En cours', avoir: 'À voir' };
+
+  let items = load();
+  let filter = 'all';
+  let editing = null;
+  let form = {};
+
+  function load() {
+    try { return JSON.parse(localStorage.getItem(KEY)) || []; } catch { return []; }
+  }
+  function save() {
+    try { localStorage.setItem(KEY, JSON.stringify(items)); }
+    catch { toast('Impossible d’enregistrer (stockage plein ?)'); }
+  }
+  function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
+  function toast(msg) {
+    const t = $('#toast'); t.textContent = msg; t.classList.add('show');
+    clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('show'), 2000);
+  }
+  function hue(str) { let h = 0; for (const c of str) h = (h * 31 + c.charCodeAt(0)) % 360; return h; }
+  function fmtDate(d) {
+    if (!d) return '';
+    const [y, m, day] = d.split('-').map(Number);
+    return new Date(y, m - 1, day).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' });
+  }
+
+  // ---------- Liste ----------
+  const FILTERS = [
+    ['all', 'Tout'], ['film', '🎬 Films'], ['serie', '📺 Séries'],
+    ['vu', 'Vus'], ['encours', 'En cours'], ['avoir', 'À voir'], ['fav', '★ Coups de cœur']
+  ];
+  function renderFilters() {
+    $('#filters').innerHTML = FILTERS.map(([v, l]) =>
+      `<button class="chip ${filter === v ? 'on' : ''}" data-f="${v}">${l}</button>`).join('');
+  }
+  $('#filters').addEventListener('click', e => {
+    const b = e.target.closest('[data-f]'); if (!b) return;
+    filter = b.dataset.f; renderFilters(); render();
+  });
+
+  function render() {
+    const q = $('#search').value.trim().toLowerCase();
+    const sort = $('#sort').value;
+    let list = items.filter(it => {
+      if (filter === 'film' || filter === 'serie') { if (it.type !== filter) return false; }
+      else if (filter === 'fav') { if ((it.rating || 0) < 5) return false; }
+      else if (filter !== 'all' && it.status !== filter) return false;
+      if (!q) return true;
+      return [it.title, it.genre, it.platform, it.notes, it.year].some(v => String(v ?? '').toLowerCase().includes(q));
+    });
+    const by = {
+      recent: (a, b) => b.createdAt - a.createdAt,
+      watched: (a, b) => (b.date || '').localeCompare(a.date || ''),
+      title: (a, b) => a.title.localeCompare(b.title, 'fr', { sensitivity: 'base' }),
+      rating: (a, b) => (b.rating || 0) - (a.rating || 0),
+      year: (a, b) => (b.year || 0) - (a.year || 0),
+    };
+    list.sort(by[sort]);
+
+    const films = items.filter(i => i.type === 'film' && i.status === 'vu').length;
+    const series = items.filter(i => i.type === 'serie' && i.status !== 'avoir').length;
+    $('#stats').textContent = `${films} film${films > 1 ? 's' : ''} vu${films > 1 ? 's' : ''} · ${series} série${series > 1 ? 's' : ''}`;
+
+    if (!list.length) {
+      $('#list').innerHTML = items.length
+        ? `<div class="empty"><div class="big">🔍</div>Aucun résultat</div>`
+        : `<div class="empty"><div class="big">🍿</div>Ta vidéothèque est vide.<br>Appuie sur <b>+</b> pour ajouter ton premier film ou ta première série.</div>`;
+      return;
+    }
+    $('#list').innerHTML = list.map(it => {
+      const h = hue(it.title);
+      const poster = it.poster
+        ? `<div class="poster" style="background-image:url('${esc(it.poster)}');background-color:hsl(${h} 45% 45%)"></div>`
+        : `<div class="poster" style="background:linear-gradient(160deg,hsl(${h} 60% 55%),hsl(${(h + 40) % 360} 55% 35%))">${esc(it.title.trim()[0]?.toUpperCase() || '?')}</div>`;
+      const bits = [];
+      if (it.year) bits.push(it.year);
+      if (it.genre) bits.push(esc(it.genre));
+      if (it.type === 'serie' && (it.season || it.episode)) bits.push(`S${it.season || '?'}${it.episode ? ' · É' + it.episode : ''}`);
+      if (it.date) bits.push(fmtDate(it.date));
+      const stars = it.rating ? '★'.repeat(it.rating) + '<span style="opacity:.25">' + '★'.repeat(5 - it.rating) + '</span>' : '';
+      return `<button class="item" data-id="${it.id}">
+        ${poster}
+        <div class="meta">
+          <div class="title">${esc(it.title)}</div>
+          <div class="sub"><span class="badge">${it.type === 'serie' ? 'Série' : 'Film'}</span>${STATUS[it.status] || ''}</div>
+          ${bits.length ? `<div class="sub">${bits.join(' · ')}</div>` : ''}
+          ${stars ? `<div class="stars">${stars}</div>` : ''}
+        </div>
+      </button>`;
+    }).join('');
+  }
+  $('#list').addEventListener('click', e => {
+    const b = e.target.closest('[data-id]'); if (b) openEdit(items.find(i => i.id === b.dataset.id));
+  });
+  $('#search').addEventListener('input', render);
+  $('#sort').addEventListener('change', () => { try { localStorage.setItem(KEY + '.sort', $('#sort').value); } catch {} render(); });
+  try { const s = localStorage.getItem(KEY + '.sort'); if (s) $('#sort').value = s; } catch {}
+
+  // ---------- Sheets ----------
+  function openSheet(el) { $('#backdrop').classList.add('show'); el.classList.add('show'); }
+  function closeSheets() {
+    $('#backdrop').classList.remove('show');
+    document.querySelectorAll('.sheet').forEach(s => s.classList.remove('show'));
+    document.activeElement?.blur();
+  }
+  $('#backdrop').addEventListener('click', closeSheets);
+  document.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', closeSheets));
+
+  // ---------- Formulaire ----------
+  function setSeg(id, v) {
+    form[id] = v;
+    document.querySelectorAll(`#f-${id} button`).forEach(b => b.classList.toggle('on', b.dataset.v === v));
+    if (id === 'type') $('#editSheet').classList.toggle('is-series', v === 'serie');
+  }
+  ['type', 'status'].forEach(id => $(`#f-${id}`).addEventListener('click', e => {
+    const b = e.target.closest('button'); if (b) setSeg(id, b.dataset.v);
+  }));
+  function setRating(n) {
+    form.rating = n;
+    $('#f-rating').innerHTML = [1, 2, 3, 4, 5].map(i =>
+      `<button type="button" data-r="${i}" class="${i <= n ? 'on' : ''}" aria-label="${i} étoile${i > 1 ? 's' : ''}">★</button>`).join('');
+  }
+  $('#f-rating').addEventListener('click', e => {
+    const b = e.target.closest('[data-r]'); if (!b) return;
+    const n = Number(b.dataset.r); setRating(form.rating === n ? 0 : n);
+  });
+
+  const FIELDS = ['title', 'date', 'year', 'genre', 'platform', 'season', 'episode', 'poster', 'notes'];
+  function openEdit(it) {
+    editing = it || null;
+    $('#editTitle').textContent = it ? 'Modifier' : 'Ajouter';
+    $('#deleteBtn').style.display = it ? '' : 'none';
+    const d = it || { type: 'film', status: 'vu', rating: 0, date: new Date().toISOString().slice(0, 10) };
+    FIELDS.forEach(f => $(`#f-${f}`).value = d[f] ?? '');
+    setSeg('type', d.type); setSeg('status', d.status); setRating(d.rating || 0);
+    openSheet($('#editSheet'));
+    if (!it) setTimeout(() => $('#f-title').focus(), 260);
+  }
+  $('#addBtn').addEventListener('click', () => openEdit(null));
+
+  $('#editSheet').addEventListener('submit', e => {
+    e.preventDefault();
+    const data = { type: form.type, status: form.status, rating: form.rating || 0 };
+    FIELDS.forEach(f => data[f] = $(`#f-${f}`).value.trim());
+    ['year', 'season', 'episode'].forEach(f => data[f] = data[f] ? Number(data[f]) : '');
+    if (!data.title) return;
+    if (editing) Object.assign(editing, data, { updatedAt: Date.now() });
+    else items.push({ id: uid(), createdAt: Date.now(), ...data });
+    save(); render(); closeSheets();
+    toast(editing ? 'Modifié ✓' : 'Ajouté ✓');
+  });
+
+  $('#deleteBtn').addEventListener('click', () => {
+    if (!editing || !confirm(`Supprimer « ${editing.title} » ?`)) return;
+    items = items.filter(i => i !== editing);
+    save(); render(); closeSheets(); toast('Supprimé');
+  });
+
+  // ---------- Sauvegarde ----------
+  $('#menuBtn').addEventListener('click', () => openSheet($('#backupSheet')));
+  $('#exportBtn').addEventListener('click', async () => {
+    const name = `videotheque-${new Date().toISOString().slice(0, 10)}.json`;
+    const blob = new Blob([JSON.stringify({ app: 'videotheque', version: 1, items }, null, 2)], { type: 'application/json' });
+    const file = new File([blob], name, { type: 'application/json' });
+    if (navigator.canShare?.({ files: [file] })) {
+      try { await navigator.share({ files: [file], title: 'Ma Vidéothèque' }); return; }
+      catch (err) { if (err.name === 'AbortError') return; }
+    }
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = name; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  });
+  $('#importBtn').addEventListener('click', () => $('#importFile').click());
+  $('#importFile').addEventListener('change', async e => {
+    const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+    try {
+      const json = JSON.parse(await f.text());
+      const incoming = Array.isArray(json) ? json : json.items;
+      if (!Array.isArray(incoming)) throw new Error();
+      const known = new Set(items.map(i => i.id));
+      let added = 0;
+      incoming.forEach(it => {
+        if (!it || !it.title) return;
+        if (!it.id) it.id = uid();
+        if (!it.createdAt) it.createdAt = Date.now();
+        if (!known.has(it.id)) { items.push(it); known.add(it.id); added++; }
+      });
+      save(); render(); closeSheets();
+      toast(`${added} titre${added > 1 ? 's' : ''} importé${added > 1 ? 's' : ''}`);
+    } catch { toast('Fichier invalide'); }
+  });
+
+  renderFilters(); render();
+
+  if ('serviceWorker' in navigator && location.protocol === 'https:') {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  }
+  if (navigator.storage?.persist) navigator.storage.persist().catch(() => {});
+})();
+</script>
+</body>
+</html>
