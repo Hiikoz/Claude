@@ -848,7 +848,10 @@
         out.seasonsTotal = live.aired || d.number_of_seasons || '';
         out.episodesTotal = live.airedEps || d.number_of_episodes || '';
         if (!out.platform) out.platform = (d.networks || []).map(n => n.name).slice(0, 2).join(', ');
-      } else out.runtime = d.runtime || '';
+      } else {
+        out.runtime = d.runtime || '';
+        if (d.belongs_to_collection) out.collection = { id: d.belongs_to_collection.id, name: d.belongs_to_collection.name };
+      }
       return out;
     }
     const d = await getJSON(`https://api.tvmaze.com/shows/${s.id}?embed[]=seasons&embed[]=episodes&embed[]=cast&embed[]=nextepisode`);
@@ -924,21 +927,58 @@
     if (e.target.closest('[data-settings]')) {
       e.preventDefault(); closeSheets(); setTimeout(() => openSheet($('#backupSheet')), 280); return;
     }
+    if (e.target.closest('[data-saga]')) return addSaga();
     const b = e.target.closest('[data-i]'); if (!b) return;
     const seq = ++lookupSeq;
     showMsg('Récupération des infos…');
     try {
       const d = await details(found[b.dataset.i], form.type);
       if (seq !== lookupSeq) return;
-      Object.entries(d).forEach(([k, v]) => { if (!['ext', 'extra', 'live'].includes(k) && v !== '' && v != null && $(`#f-${k}`)) $(`#f-${k}`).value = v; });
+      Object.entries(d).forEach(([k, v]) => { if (!['ext', 'extra', 'live', 'collection'].includes(k) && v !== '' && v != null && $(`#f-${k}`)) $(`#f-${k}`).value = v; });
       form.ext = d.ext; form.extra = d.extra; form.live = d.live;
       hideSuggest();
       document.activeElement?.blur();
       toast('Infos remplies ✓');
+      if (d.collection && !editing) {
+        sagaId = d.collection.id;
+        $('#suggest').innerHTML = `<button type="button" class="sg" data-saga style="justify-content:center;color:var(--accent);font-weight:700">
+          ➕ Ajouter toute la saga « ${esc(d.collection.name)} »</button>`;
+        $('#suggest').classList.add('show');
+      }
     } catch (err) {
       if (seq === lookupSeq) showMsg(esc(err.message));
     }
   });
+
+  // Saga complète (collection TMDB)
+  let sagaId = null;
+  async function addSaga() {
+    const seq = ++lookupSeq;
+    try {
+      showMsg('Recherche des films de la saga…');
+      const c = await tmdb('/collection/' + sagaId, { language: 'fr-FR' });
+      const parts = (c.parts || [])
+        .filter(p => p.release_date && p.release_date <= today())
+        .sort((a, b) => a.release_date.localeCompare(b.release_date));
+      const status = form.status || 'vu';
+      let added = 0, i = 0;
+      for (const p of parts) {
+        i++;
+        if (seq !== lookupSeq) return;
+        if (items.some(it => it.ext?.src === 'tmdb' && it.ext.id === p.id && it.type === 'film')) continue;
+        showMsg(`Ajout des films… ${i}/${parts.length}`);
+        const d = await details({ src: 'tmdb', id: p.id }, 'film');
+        const { collection, ...rest } = d;
+        items.push({ id: uid(), createdAt: Date.now() + i, type: 'film', status, rating: 0, date: '',
+          season: '', episode: '', seasonsTotal: '', episodesTotal: '', notes: '', ...rest });
+        added++;
+      }
+      save(); renderFilters(); render(); closeSheets();
+      toast(added ? `${added} film${added > 1 ? 's' : ''} ajouté${added > 1 ? 's' : ''} ✓` : 'Toute la saga est déjà là');
+    } catch (err) {
+      if (seq === lookupSeq) showMsg(esc(err.message));
+    }
+  }
 
   // Clé TMDB
   $('#tmdbKey').value = getKey();

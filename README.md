@@ -7,6 +7,7 @@ Petite web app pour iPhone : je note les films et séries que j'ai regardés pou
 - Ajouter un film ou une série : titre, statut (Vu / En cours / À voir), note sur 5 étoiles, date de visionnage, année, genre, plateforme, saison et épisode (séries), lien d'affiche, mon avis
 - **Fiche détaillée** : grande affiche, synopsis, note TMDB, réalisateur, acteurs, où regarder, bouton **Bande-annonce VF**, progression et bouton « +1 épisode » pour les séries
 - **Nouveautés des séries** : vérification automatique deux fois par jour, avec une alerte 🔔 quand une nouvelle saison est annoncée ou sort
+- **Saga complète** : après avoir choisi un film, un bouton ajoute tous les films sortis de sa saga d'un coup
 - **Vue Affiches** : la liste en grille d'affiches
 - **Statistiques** : temps passé devant l'écran, films et épisodes vus, note moyenne, titres par mois, genres et plateformes préférés, mieux notés
 - Recherche, filtres (films, séries, vus, en cours, à voir, coups de cœur) et tri
