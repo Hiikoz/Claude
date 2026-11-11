@@ -203,6 +203,18 @@
     opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 30;
   }
   .toast.show { opacity: 1; }
+  .checkbar {
+    position: fixed; left: 50%; top: calc(env(safe-area-inset-top) + 8px); z-index: 40;
+    width: min(92vw, 420px); transform: translate(-50%, -150%); transition: transform .25s ease;
+    background: var(--card); color: var(--text); border-radius: 14px; padding: 10px 14px 12px;
+    box-shadow: 0 6px 24px rgba(0,0,0,.25); font-size: 13px; pointer-events: none;
+  }
+  .checkbar.show { transform: translate(-50%, 0); }
+  .cb-txt { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 7px; }
+  .cb-txt span:first-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; }
+  .cb-txt span:last-child { color: var(--muted); font-variant-numeric: tabular-nums; flex: none; }
+  .cb-track { height: 6px; border-radius: 3px; background: var(--chip); overflow: hidden; }
+  .cb-fill { height: 100%; width: 0; background: var(--accent); border-radius: 3px; transition: width .2s ease; }
 </style>
 </head>
 <body>
@@ -342,6 +354,11 @@
   <button type="button" class="primary" id="exportBtn">Exporter mes données</button>
   <button type="button" class="primary" id="importBtn" style="background:var(--card);color:var(--accent)">Importer un fichier</button>
   <input type="file" id="importFile" accept="application/json,.json" hidden>
+</div>
+
+<div class="checkbar" id="checkbar" role="status" aria-live="polite">
+  <div class="cb-txt"><span id="cbLabel">Vérification des nouveautés…</span><span id="cbCount"></span></div>
+  <div class="cb-track"><div class="cb-fill" id="cbFill"></div></div>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -510,14 +527,43 @@
         + (list.length > 1 ? ` (+${list.length - 1} autre${list.length > 2 ? 's' : ''})` : ''),
     };
   }
-  async function refreshFilms(force) {
+  // Barre de progression de la vérification
+  const progress = {
+    total: 0, done: 0, timer: null,
+    start(total) {
+      this.total = total; this.done = 0; clearTimeout(this.timer);
+      if (total) { this.update(''); $('#checkbar').classList.add('show'); }
+    },
+    add(n) { this.total += n; this.update(); },
+    step(label) { this.done++; this.update(label); },
+    update(label) {
+      if (!this.total) return;
+      if (label != null) $('#cbLabel').textContent = label ? `Vérification · ${label}` : 'Vérification des nouveautés…';
+      $('#cbCount').textContent = `${Math.min(this.done, this.total)}/${this.total}`;
+      $('#cbFill').style.width = (this.total ? Math.min(100, this.done / this.total * 100) : 0) + '%';
+    },
+    end(msg) {
+      if (!this.total) return;
+      $('#cbLabel').textContent = msg; $('#cbCount').textContent = '';
+      $('#cbFill').style.width = '100%';
+      this.timer = setTimeout(() => $('#checkbar').classList.remove('show'), 1800);
+      this.total = 0;
+    },
+  };
+
+  function filmsToCheck(force) {
+    if (!getKey()) return [];
+    return items.filter(i => i.type === 'film' && i.ext?.src === 'tmdb'
+      && (force || !i.colCheckedAt || Date.now() - i.colCheckedAt > 3 * 86400e3)).slice(0, force ? 300 : 40);
+  }
+  async function refreshFilms(force, todo) {
     if (!getKey()) return 0;
     const films = items.filter(i => i.type === 'film' && i.ext?.src === 'tmdb');
     let n = 0;
     // 1) savoir si chaque film fait partie d'une saga (vérifié tous les 3 jours :
     //    quand une suite est annoncée, TMDB crée la saga et y range le film)
-    const todo = films.filter(i => force || !i.colCheckedAt || Date.now() - i.colCheckedAt > 3 * 86400e3).slice(0, force ? 300 : 40);
     for (const it of todo) {
+      progress.step(it.title);
       try {
         const d = await tmdb('/movie/' + it.ext.id, { language: 'fr-FR' });
         const c = d.belongs_to_collection;
@@ -530,10 +576,12 @@
       } catch {}
     }
     // 2) regarder les films de chaque saga (toutes les 12 h)
-    const cids = [...new Set(films.map(i => i.collection?.id).filter(Boolean))];
+    const cids = [...new Set(films.map(i => i.collection?.id).filter(Boolean))]
+      .filter(cid => force || !sagas[cid]?.checkedAt || Date.now() - sagas[cid].checkedAt >= 12 * 3600e3);
+    progress.add(cids.length);
     for (const cid of cids) {
       const S = sagas[cid] || (sagas[cid] = { known: null });
-      if (!force && S.checkedAt && Date.now() - S.checkedAt < 12 * 3600e3) continue;
+      progress.step(S.name ? 'saga ' + S.name : 'sagas');
       try {
         const c = await tmdb('/collection/' + cid, { language: 'fr-FR' });
         S.name = c.name;
@@ -573,8 +621,11 @@
     refreshing = true;
     const todo = items.filter(i => i.type === 'serie' && i.ext && (i.ext.src === 'tvmaze' || getKey())
       && (force || !i.live || Date.now() - (i.live.checkedAt || 0) > 12 * 3600e3));
+    const filmTodo = filmsToCheck(force);
+    progress.start(todo.length + filmTodo.length);
     let n = 0;
     for (const it of todo) {
+      progress.step(it.title);
       try {
         const d = await details(it.ext, 'serie');
         it.extra = d.extra; it.live = d.live;
@@ -582,16 +633,17 @@
         n++;
       } catch {}
     }
-    try { n += await refreshFilms(force); } catch {}
+    try { n += await refreshFilms(force, filmTodo); } catch {}
     refreshing = false;
     if (n) { save(); renderFilters(); render(); }
+    const k = items.filter(i => newsOf(i)).length;
+    progress.end(k ? `🔔 ${k} nouveauté${k > 1 ? 's' : ''}` : '✓ Vérification terminée');
     return n;
   }
   $('#checkNowBtn').addEventListener('click', async () => {
-    toast('Vérification…');
+    if (refreshing) return toast('Vérification déjà en cours…');
     const n = await refreshSeries(true);
-    const k = items.filter(i => newsOf(i)).length;
-    toast(n ? (k ? `🔔 ${k} nouveauté${k > 1 ? 's' : ''}` : 'Rien de nouveau pour l’instant') : 'Rien à vérifier (ajoute tes titres avec 🔍)');
+    if (!n) toast('Rien à vérifier (ajoute tes titres avec 🔍)');
   });
 
   // ---------- Fiche détaillée ----------

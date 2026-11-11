@@ -1,5 +1,5 @@
 // Cache hors ligne : réseau d'abord, cache en secours.
-const CACHE = 'videotheque-v5';
+const CACHE = 'videotheque-v6';
 const FILES = ['./', 'index.html', 'manifest.webmanifest', 'icon-180.png', 'icon-512.png'];
 
 self.addEventListener('install', e => {
