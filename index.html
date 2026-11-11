@@ -126,6 +126,20 @@
   .rate button.on { color: var(--star); }
   .series-only { display: none; }
   .is-series .series-only { display: flex; }
+  .is-series .film-only { display: none; }
+  .find { flex: none; border: 0; background: var(--chip); border-radius: 8px; width: 36px; height: 32px; cursor: pointer; font-size: 16px; }
+  .suggest { background: var(--card); border-radius: 12px; overflow: hidden; margin: -4px 0 14px; display: none; }
+  .suggest.show { display: block; }
+  .sg { display: flex; gap: 10px; align-items: center; width: 100%; border: 0; background: transparent; padding: 8px 12px; border-bottom: 1px solid var(--line); text-align: left; cursor: pointer; }
+  .sg:last-child { border-bottom: 0; }
+  .sg img, .sg .ph { width: 36px; height: 54px; border-radius: 5px; object-fit: cover; background: var(--chip); flex: none; }
+  .sg b { display: block; font-size: 15px; }
+  .sg small { color: var(--muted); font-size: 13px; }
+  .sg-msg { padding: 12px 14px; color: var(--muted); font-size: 14px; }
+  .sg-msg a, .hint a { color: var(--accent); }
+  .field { width: 100%; border: 0; border-radius: 12px; padding: 12px 14px; background: var(--card); margin-bottom: 10px; outline: none; font-size: 15px; }
+  .hint ol { padding-left: 20px; margin: 6px 0; }
+  .hint li { margin: 3px 0; }
   .danger { width: 100%; border: 0; border-radius: 12px; padding: 13px; background: var(--card); color: var(--accent); font-weight: 600; cursor: pointer; }
   .primary { width: 100%; border: 0; border-radius: 12px; padding: 13px; background: var(--accent); color: #fff; font-weight: 700; cursor: pointer; margin-bottom: 10px; }
   .hint { color: var(--muted); font-size: 13px; margin: 0 4px 14px; }
@@ -140,7 +154,7 @@
 <body>
 <div class="wrap">
   <header>
-    <button class="menu-btn" id="menuBtn">Sauvegarde</button>
+    <button class="menu-btn" id="menuBtn">Réglages</button>
     <h1>Ma Vidéothèque</h1>
     <div class="stats" id="stats"></div>
     <input class="search" id="search" type="search" placeholder="Rechercher un titre, un genre…" autocomplete="off">
@@ -172,7 +186,10 @@
   </div>
 
   <div class="group">
-    <div class="row"><input id="f-title" placeholder="Titre" style="text-align:left;font-weight:600" required></div>
+    <div class="row">
+      <input id="f-title" placeholder="Titre" style="text-align:left;font-weight:600" required>
+      <button type="button" class="find" id="findBtn" aria-label="Chercher les infos">🔍</button>
+    </div>
     <div class="row"><div class="seg" id="f-type">
       <button type="button" data-v="film">🎬 Film</button>
       <button type="button" data-v="serie">📺 Série</button>
@@ -184,15 +201,27 @@
     </div></div>
   </div>
 
+  <div class="suggest" id="suggest"></div>
+
   <div class="group">
     <div class="row"><label>Note</label><div class="rate" id="f-rating"></div></div>
     <div class="row"><label for="f-date">Vu le</label><input id="f-date" type="date"></div>
+    <div class="row series-only"><label for="f-season">Saison en cours</label><input id="f-season" type="number" inputmode="numeric" min="0" placeholder="—"></div>
+    <div class="row series-only"><label for="f-episode">Épisode en cours</label><input id="f-episode" type="number" inputmode="numeric" min="0" placeholder="—"></div>
+  </div>
+
+  <div class="group">
     <div class="row"><label for="f-year">Année de sortie</label><input id="f-year" type="number" inputmode="numeric" min="1880" max="2100" placeholder="—"></div>
     <div class="row"><label for="f-genre">Genre</label><input id="f-genre" placeholder="Ex. Thriller"></div>
-    <div class="row"><label for="f-platform">Où</label><input id="f-platform" placeholder="Netflix, cinéma…"></div>
-    <div class="row series-only"><label for="f-season">Saison</label><input id="f-season" type="number" inputmode="numeric" min="0" placeholder="—"></div>
-    <div class="row series-only"><label for="f-episode">Épisode</label><input id="f-episode" type="number" inputmode="numeric" min="0" placeholder="—"></div>
+    <div class="row"><label for="f-platform">Où regarder</label><input id="f-platform" placeholder="Netflix, cinéma…"></div>
+    <div class="row film-only"><label for="f-runtime">Durée (min)</label><input id="f-runtime" type="number" inputmode="numeric" min="0" placeholder="—"></div>
+    <div class="row series-only"><label for="f-seasonsTotal">Nombre de saisons</label><input id="f-seasonsTotal" type="number" inputmode="numeric" min="0" placeholder="—"></div>
+    <div class="row series-only"><label for="f-episodesTotal">Nombre d'épisodes</label><input id="f-episodesTotal" type="number" inputmode="numeric" min="0" placeholder="—"></div>
     <div class="row"><label for="f-poster">Affiche (lien)</label><input id="f-poster" type="url" inputmode="url" placeholder="https://…"></div>
+  </div>
+
+  <div class="group">
+    <div class="row col"><label for="f-overview">Synopsis</label><textarea id="f-overview" placeholder="Rempli automatiquement"></textarea></div>
   </div>
 
   <div class="group">
@@ -202,13 +231,29 @@
   <button type="button" class="danger" id="deleteBtn">Supprimer</button>
 </form>
 
-<!-- Fiche sauvegarde -->
+<!-- Fiche réglages -->
 <div class="sheet" id="backupSheet">
   <div class="grab"></div>
   <div class="sheet-head">
-    <span></span><h2>Sauvegarde</h2>
+    <span></span><h2>Réglages</h2>
     <button type="button" class="link" data-close>Fermer</button>
   </div>
+
+  <h3 style="margin:6px 4px 8px;font-size:17px">Remplissage automatique</h3>
+  <div class="hint">
+    Pour remplir tout seul l'année, le genre, le synopsis, l'affiche, les saisons et où regarder,
+    l'app utilise la base gratuite <b>TMDB</b>. Il faut une clé (gratuite, une seule fois) :
+    <ol>
+      <li>Crée un compte sur <a href="https://www.themoviedb.org/signup" target="_blank" rel="noopener">themoviedb.org</a> et valide l'e-mail.</li>
+      <li>Va sur <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener">Paramètres → API</a> et demande une clé (usage « Personnel »).</li>
+      <li>Copie la <b>Clé d'API</b> (ou le « Jeton d'accès en lecture ») et colle-la ici.</li>
+    </ol>
+    Sans clé, seules les séries sont trouvées (avec un synopsis en anglais).
+  </div>
+  <input class="field" id="tmdbKey" type="text" placeholder="Clé TMDB" autocomplete="off" autocapitalize="off" spellcheck="false">
+  <button type="button" class="primary" id="tmdbSave">Enregistrer la clé</button>
+
+  <h3 style="margin:18px 4px 8px;font-size:17px">Sauvegarde</h3>
   <p class="hint">Tes films et séries sont enregistrés sur ton iPhone. Exporte un fichier de temps en temps (dans Fichiers ou iCloud Drive) pour ne jamais les perdre.</p>
   <button type="button" class="primary" id="exportBtn">Exporter mes données</button>
   <button type="button" class="primary" id="importBtn" style="background:var(--card);color:var(--accent)">Importer un fichier</button>
@@ -300,6 +345,7 @@
       if (it.year) bits.push(it.year);
       if (it.genre) bits.push(esc(it.genre));
       if (it.type === 'serie' && (it.season || it.episode)) bits.push(`S${it.season || '?'}${it.episode ? ' · É' + it.episode : ''}`);
+      else if (it.type === 'serie' && it.seasonsTotal) bits.push(`${it.seasonsTotal} saison${it.seasonsTotal > 1 ? 's' : ''}`);
       if (it.date) bits.push(fmtDate(it.date));
       const stars = it.rating ? '★'.repeat(it.rating) + '<span style="opacity:.25">' + '★'.repeat(5 - it.rating) + '</span>' : '';
       return `<button class="item" data-id="${it.id}">
@@ -337,8 +383,170 @@
     if (id === 'type') $('#editSheet').classList.toggle('is-series', v === 'serie');
   }
   ['type', 'status'].forEach(id => $(`#f-${id}`).addEventListener('click', e => {
-    const b = e.target.closest('button'); if (b) setSeg(id, b.dataset.v);
+    const b = e.target.closest('button'); if (!b) return;
+    const changed = form[id] !== b.dataset.v;
+    setSeg(id, b.dataset.v);
+    if (id === 'type' && changed && $('#f-title').value.trim().length >= 2) lookup();
   }));
+
+  // ---------- Remplissage automatique (TMDB, ou TVmaze en secours pour les séries) ----------
+  const TMDB_KEY = KEY + '.tmdb';
+  const getKey = () => { try { return (localStorage.getItem(TMDB_KEY) || '').trim(); } catch { return ''; } };
+  const IMG = 'https://image.tmdb.org/t/p/w342';
+  const yearOf = d => (d ? Number(String(d).slice(0, 4)) || '' : '');
+
+  async function tmdb(path, params = {}) {
+    const key = getKey();
+    const u = new URL('https://api.themoviedb.org/3' + path);
+    Object.entries(params).forEach(([k, v]) => u.searchParams.set(k, v));
+    const opt = {};
+    if (key.startsWith('eyJ')) opt.headers = { Authorization: 'Bearer ' + key, accept: 'application/json' };
+    else u.searchParams.set('api_key', key);
+    const r = await fetch(u, opt);
+    if (r.status === 401) throw new Error('Clé TMDB invalide (vérifie-la dans Réglages)');
+    if (!r.ok) throw new Error('TMDB indisponible (' + r.status + ')');
+    return r.json();
+  }
+  async function getJSON(url) {
+    const r = await fetch(url);
+    if (r.status === 404) return null;
+    if (!r.ok) throw new Error('Service indisponible (' + r.status + ')');
+    return r.json();
+  }
+
+  async function search(q, type) {
+    if (getKey()) {
+      const d = await tmdb(type === 'serie' ? '/search/tv' : '/search/movie', { query: q, language: 'fr-FR', include_adult: 'false' });
+      return (d.results || []).slice(0, 6).map(r => ({
+        src: 'tmdb', id: r.id,
+        title: r.title || r.name, orig: r.original_title || r.original_name,
+        year: yearOf(r.release_date || r.first_air_date),
+        poster: r.poster_path ? 'https://image.tmdb.org/t/p/w92' + r.poster_path : '',
+      }));
+    }
+    if (type === 'serie') {
+      const d = await getJSON('https://api.tvmaze.com/search/shows?q=' + encodeURIComponent(q)) || [];
+      return d.slice(0, 6).map(({ show: s }) => ({
+        src: 'tvmaze', id: s.id, title: s.name, year: yearOf(s.premiered),
+        poster: s.image?.medium?.replace(/^http:/, 'https:') || '',
+      }));
+    }
+    throw Object.assign(new Error('nokey'), { nokey: true });
+  }
+
+  const GENRES_FR = { Drama: 'Drame', Crime: 'Policier', Comedy: 'Comédie', Adventure: 'Aventure',
+    Fantasy: 'Fantastique', Horror: 'Horreur', Mystery: 'Mystère', Family: 'Famille', War: 'Guerre',
+    History: 'Histoire', Music: 'Musique', Supernatural: 'Surnaturel', Documentary: 'Documentaire',
+    Children: 'Enfants', Medical: 'Médical', Legal: 'Judiciaire', Espionage: 'Espionnage', Sports: 'Sport' };
+
+  function providersFR(wp) {
+    const fr = wp?.results?.FR; if (!fr) return '';
+    const names = list => (list || []).map(p => p.provider_name);
+    const uniq = a => [...new Set(a)];
+    const sub = uniq([...names(fr.flatrate), ...names(fr.free), ...names(fr.ads)]);
+    if (sub.length) return sub.slice(0, 4).join(', ');
+    const pay = uniq([...names(fr.rent), ...names(fr.buy)]);
+    return pay.length ? 'Location/achat : ' + pay.slice(0, 3).join(', ') : '';
+  }
+
+  async function details(s, type) {
+    if (s.src === 'tmdb') {
+      const path = (type === 'serie' ? '/tv/' : '/movie/') + s.id;
+      const d = await tmdb(path, { language: 'fr-FR', append_to_response: 'watch/providers' });
+      let overview = d.overview;
+      if (!overview) { try { overview = (await tmdb(path, { language: 'en-US' })).overview; } catch {} }
+      const out = {
+        title: d.title || d.name,
+        year: yearOf(d.release_date || d.first_air_date),
+        genre: (d.genres || []).slice(0, 2).map(g => g.name).join(', '),
+        platform: providersFR(d['watch/providers']),
+        poster: d.poster_path ? IMG + d.poster_path : '',
+        overview: overview || '',
+        ext: { src: 'tmdb', id: d.id },
+      };
+      if (type === 'serie') {
+        out.seasonsTotal = d.number_of_seasons || '';
+        out.episodesTotal = d.number_of_episodes || '';
+        if (!out.platform) out.platform = (d.networks || []).map(n => n.name).slice(0, 2).join(', ');
+      } else out.runtime = d.runtime || '';
+      return out;
+    }
+    const d = await getJSON(`https://api.tvmaze.com/shows/${s.id}?embed[]=seasons&embed[]=episodes`);
+    const seasons = (d._embedded?.seasons || []).filter(x => x.episodeOrder || x.premiereDate);
+    return {
+      title: d.name,
+      year: yearOf(d.premiered),
+      genre: (d.genres || []).slice(0, 2).map(g => GENRES_FR[g] || g).join(', '),
+      platform: d.webChannel?.name || d.network?.name || '',
+      poster: (d.image?.original || d.image?.medium || '').replace(/^http:/, 'https:'),
+      overview: (d.summary || '').replace(/<[^>]+>/g, '').trim(),
+      seasonsTotal: seasons.length || '',
+      episodesTotal: (d._embedded?.episodes || []).length || '',
+      ext: { src: 'tvmaze', id: d.id },
+    };
+  }
+
+  let found = [], lookupSeq = 0, lookupTimer;
+  function hideSuggest() { lookupSeq++; $('#suggest').classList.remove('show'); $('#suggest').innerHTML = ''; }
+  function showMsg(html) { $('#suggest').innerHTML = `<div class="sg-msg">${html}</div>`; $('#suggest').classList.add('show'); }
+
+  async function lookup() {
+    clearTimeout(lookupTimer);
+    const q = $('#f-title').value.trim();
+    if (q.length < 2) return hideSuggest();
+    const seq = ++lookupSeq;
+    showMsg('Recherche…');
+    try {
+      const res = await search(q, form.type);
+      if (seq !== lookupSeq) return;
+      found = res;
+      if (!res.length) return showMsg('Rien trouvé. Vérifie le titre, ou si c’est un film ou une série.');
+      $('#suggest').innerHTML = res.map((r, i) => `<button type="button" class="sg" data-i="${i}">
+        ${r.poster ? `<img src="${esc(r.poster)}" alt="" loading="lazy">` : '<span class="ph"></span>'}
+        <span><b>${esc(r.title)}</b><small>${[r.year, r.orig && r.orig !== r.title ? esc(r.orig) : ''].filter(Boolean).join(' · ')}</small></span>
+      </button>`).join('');
+      $('#suggest').classList.add('show');
+    } catch (err) {
+      if (seq !== lookupSeq) return;
+      if (err.nokey) showMsg('Pour remplir automatiquement les films, ajoute ta clé TMDB gratuite dans <a href="#" data-settings>Réglages</a>.');
+      else showMsg(navigator.onLine ? esc(err.message) : 'Pas de connexion Internet.');
+    }
+  }
+
+  $('#f-title').addEventListener('input', () => {
+    clearTimeout(lookupTimer);
+    lookupTimer = setTimeout(lookup, 500);
+  });
+  $('#findBtn').addEventListener('click', lookup);
+  $('#suggest').addEventListener('click', async e => {
+    if (e.target.closest('[data-settings]')) {
+      e.preventDefault(); closeSheets(); setTimeout(() => openSheet($('#backupSheet')), 280); return;
+    }
+    const b = e.target.closest('[data-i]'); if (!b) return;
+    const seq = ++lookupSeq;
+    showMsg('Récupération des infos…');
+    try {
+      const d = await details(found[b.dataset.i], form.type);
+      if (seq !== lookupSeq) return;
+      Object.entries(d).forEach(([k, v]) => { if (k !== 'ext' && v !== '' && v != null && $(`#f-${k}`)) $(`#f-${k}`).value = v; });
+      form.ext = d.ext;
+      hideSuggest();
+      document.activeElement?.blur();
+      toast('Infos remplies ✓');
+    } catch (err) {
+      if (seq === lookupSeq) showMsg(esc(err.message));
+    }
+  });
+
+  // Clé TMDB
+  $('#tmdbKey').value = getKey();
+  $('#tmdbSave').addEventListener('click', async () => {
+    const k = $('#tmdbKey').value.trim();
+    try { k ? localStorage.setItem(TMDB_KEY, k) : localStorage.removeItem(TMDB_KEY); } catch {}
+    if (!k) return toast('Clé supprimée');
+    try { await tmdb('/configuration'); toast('Clé TMDB valide ✓'); }
+    catch (err) { toast(err.message); }
+  });
   function setRating(n) {
     form.rating = n;
     $('#f-rating').innerHTML = [1, 2, 3, 4, 5].map(i =>
@@ -349,13 +557,17 @@
     const n = Number(b.dataset.r); setRating(form.rating === n ? 0 : n);
   });
 
-  const FIELDS = ['title', 'date', 'year', 'genre', 'platform', 'season', 'episode', 'poster', 'notes'];
+  const FIELDS = ['title', 'date', 'year', 'genre', 'platform', 'season', 'episode', 'runtime',
+    'seasonsTotal', 'episodesTotal', 'poster', 'overview', 'notes'];
+  const NUMERIC = ['year', 'season', 'episode', 'runtime', 'seasonsTotal', 'episodesTotal'];
   function openEdit(it) {
     editing = it || null;
     $('#editTitle').textContent = it ? 'Modifier' : 'Ajouter';
     $('#deleteBtn').style.display = it ? '' : 'none';
     const d = it || { type: 'film', status: 'vu', rating: 0, date: new Date().toISOString().slice(0, 10) };
     FIELDS.forEach(f => $(`#f-${f}`).value = d[f] ?? '');
+    form.ext = d.ext || null;
+    hideSuggest();
     setSeg('type', d.type); setSeg('status', d.status); setRating(d.rating || 0);
     openSheet($('#editSheet'));
     if (!it) setTimeout(() => $('#f-title').focus(), 260);
@@ -366,7 +578,8 @@
     e.preventDefault();
     const data = { type: form.type, status: form.status, rating: form.rating || 0 };
     FIELDS.forEach(f => data[f] = $(`#f-${f}`).value.trim());
-    ['year', 'season', 'episode'].forEach(f => data[f] = data[f] ? Number(data[f]) : '');
+    NUMERIC.forEach(f => data[f] = data[f] ? Number(data[f]) : '');
+    if (form.ext) data.ext = form.ext;
     if (!data.title) return;
     if (editing) Object.assign(editing, data, { updatedAt: Date.now() });
     else items.push({ id: uid(), createdAt: Date.now(), ...data });
