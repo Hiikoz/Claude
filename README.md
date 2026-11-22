@@ -9,6 +9,7 @@ Petite web app pour iPhone : je note les films et séries que j'ai regardés pou
 - **Nouveautés des séries** : vérification automatique deux fois par jour, avec une alerte 🔔 quand une nouvelle saison est annoncée ou sort
 - **Saga complète** : après avoir choisi un film, un bouton ajoute tous les films sortis de sa saga d'un coup
 - **Suites de films** : alerte 🔔 quand une suite d'un de tes films est annoncée, puis quand elle sort, avec un bouton pour l'ajouter « À voir »
+- **Pour toi ✨** : une vingtaine de films et de séries (deux onglets) que tu n'as pas encore vus, choisis d'après ce que tu as regardé. Pour chaque titre : où le regarder en France, la raison (« Parce que tu as aimé… »), le résumé et la bande-annonce. Bouton **✓ Vu** (le titre rejoint ta vidéothèque) et **👎 Pas aimé** (il ne revient plus, et les titres du même style reculent). Pas d'anime, et pas de titre d'avant 2000 sauf les grands classiques
 - **Vue Affiches** : la liste en grille d'affiches
 - **Statistiques** : temps passé devant l'écran, films et épisodes vus, note moyenne, titres par mois, genres et plateformes préférés, mieux notés
 - Recherche, filtres (films, séries, vus, en cours, à voir, coups de cœur) et tri
