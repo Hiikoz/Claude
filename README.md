@@ -13,7 +13,7 @@ Petite web app pour iPhone : je note les films et séries que j'ai regardés pou
 - **Vue Affiches** : la liste en grille d'affiches
 - **Statistiques** : temps passé devant l'écran, films et épisodes vus, note moyenne, titres par mois, genres et plateformes préférés, mieux notés
 - Recherche, filtres (films, séries, vus, en cours, à voir, coups de cœur) et tri
-- Fonctionne hors ligne, mode sombre automatique
+- Thème « Cinéma » animé, mode sombre automatique, fonctionne hors ligne
 - Sauvegarde : export / import d'un fichier `.json` (à garder dans Fichiers ou iCloud Drive)
 
 Les données restent sur le téléphone (stockage local du navigateur), rien n'est envoyé sur Internet.
