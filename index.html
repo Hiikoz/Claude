@@ -375,6 +375,11 @@
   .rec.open .rec-more { grid-template-rows: 1fr; opacity: 1; margin-top: 10px; }
   .rec-more p { margin: 0 0 8px; }
   .rec-more a { color: var(--accent); font-weight: 700; text-decoration: none; }
+  #envieForm { margin-bottom: 8px; }
+  .envie-ideas { display: flex; gap: 8px; margin: 0 -16px 10px; padding: 2px 16px 4px; overflow-x: auto; scrollbar-width: none; }
+  .envie-ideas::-webkit-scrollbar { display: none; }
+  .envie-ideas:empty { display: none; }
+  .envie-ideas .chip { padding: 6px 12px; font-size: 13px; }
   .rec-busy { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 10px 14px 12px; margin-bottom: 12px; font-size: 13px; }
   .rec-busy .cb-txt span:first-child { font-weight: 600; }
 
@@ -497,6 +502,10 @@
     <span></span><h2>Pour toi ✨</h2>
     <button type="button" class="link" data-close>Fermer</button>
   </div>
+  <form id="envieForm" autocomplete="off">
+    <input class="search" id="envie" type="search" enterkeyhint="search" placeholder="🔎 Une envie ? Guerre, hôpital…" aria-label="Chercher par thème">
+  </form>
+  <div class="envie-ideas" id="envieIdeas"></div>
   <div class="seg" id="recTabs" style="margin-bottom:12px">
     <button type="button" data-v="film">🎬 Films</button>
     <button type="button" data-v="serie">📺 Séries</button>
@@ -1246,7 +1255,7 @@
     return !!rMeta.dislikes[type + ':' + id]
       || items.some(i => i.type === type && ((i.ext?.src === 'tmdb' && i.ext.id === id) || norm(i.title) === norm(x.t)));
   }
-  function recHTML(type, r, x) {
+  function recHTML(type, r, x, wish) {
     const why = r.by.length
       ? `Parce que tu as aimé ${r.by.map(t => '« ' + esc(t) + ' »').join(' et ')}${r.nb > 2 ? ` (+ ${r.nb - 2} autre${r.nb > 3 ? 's' : ''})` : ''}` : '';
     const info = [x.y, esc(x.gn),
@@ -1275,6 +1284,7 @@
       </div></div>
       <div class="rec-act">
         <button type="button" data-vu>✓ Vu</button>
+        ${wish ? '<button type="button" data-vu="avoir">＋ À voir</button>' : ''}
         <button type="button" data-nope>👎 Pas aimé</button>
       </div>
     </div>`;
@@ -1292,6 +1302,7 @@
         <a href="#" data-settings style="color:var(--accent);font-weight:700">Ouvrir les Réglages</a></div>`;
       return;
     }
+    if (envieQ) return renderEnvie();
     let html = b ? busyHTML(b) : '';
     if (recErr[type] && !b) html += `<p class="hint">⚠️ ${esc(recErr[type])}</p>`;
     if (o?.tooFew) {
@@ -1335,6 +1346,7 @@
     if (recType === type) renderRecs();
   }
   function showRecs(force) {
+    if (envieQ) return runEnvie(recType);
     renderRecs();
     const type = recType, o = rOut[type];
     if (!getKey() || recBusy[type]) return;
@@ -1344,6 +1356,208 @@
     }
     if (force || !o || o.sig !== recSig(type) || Date.now() - o.at > 3 * 86400e3) runRecs(type);
   }
+  // ----- « Une envie ? » : chercher des titres par thème -----
+  // Le mot tapé (« guerre », « hôpital »…) est traduit en anglais (petit dictionnaire, sinon traduction
+  // en ligne), puis on cherche les thèmes TMDB (mots-clés) et genres qui y correspondent, et les titres
+  // les plus connus et les mieux notés qui les portent. Mêmes règles que « Pour toi » : pas ce que tu as déjà,
+  // ni ce que tu n'as pas aimé, pas d'anime, et avant 2000 seulement les grands classiques.
+  const THEMES = {
+    'guerre': ['war'], 'armee': ['army', 'military'], 'militaire': ['military', 'soldier'], 'soldat': ['soldier'],
+    'seconde guerre mondiale': ['world war ii'], '2eme guerre mondiale': ['world war ii'], 'ww2': ['world war ii'],
+    'premiere guerre mondiale': ['world war i'], 'vietnam': ['vietnam war'], 'nazi': ['nazi'],
+    'hopital': ['hospital', 'doctor'], 'medecin': ['doctor'], 'medical': ['medical', 'hospital'], 'medecine': ['medicine', 'doctor'],
+    'chirurgien': ['surgeon'], 'infirmiere': ['nurse'], 'urgences': ['emergency room', 'hospital'],
+    'maladie': ['illness', 'disease'], 'cancer': ['cancer'], 'virus': ['virus', 'epidemic'], 'epidemie': ['epidemic', 'pandemic'],
+    'pandemie': ['pandemic', 'epidemic'], 'psychiatrie': ['psychiatric hospital', 'mental illness'], 'folie': ['madness', 'mental illness'],
+    'prison': ['prison'], 'evasion': ['prison escape'], 'braquage': ['heist', 'bank robbery'], 'casse': ['heist'],
+    'cambriolage': ['burglary', 'heist'], 'police': ['police', 'cop'], 'flic': ['police', 'cop'], 'policier': ['police', 'detective'],
+    'enquete': ['investigation', 'detective'], 'detective': ['detective'], 'meurtre': ['murder'],
+    'tueur en serie': ['serial killer'], 'serial killer': ['serial killer'], 'tueur a gages': ['hitman', 'assassin'],
+    'assassin': ['assassin'], 'mafia': ['mafia', 'gangster'], 'gangster': ['gangster'], 'gang': ['gang'],
+    'drogue': ['drugs', 'drug cartel'], 'cartel': ['drug cartel'], 'kidnapping': ['kidnapping'], 'enlevement': ['kidnapping'],
+    'otage': ['hostage'], 'terrorisme': ['terrorism'], 'terroriste': ['terrorist', 'terrorism'],
+    'avocat': ['lawyer', 'courtroom'], 'proces': ['trial', 'courtroom'], 'tribunal': ['courtroom'], 'justice': ['courtroom', 'justice'],
+    'espion': ['spy', 'espionage'], 'espionnage': ['espionage', 'spy'], 'agent secret': ['secret agent', 'spy'],
+    'fbi': ['fbi'], 'cia': ['cia'], 'hacker': ['hacker'], 'pirate informatique': ['hacker'], 'informatique': ['computer', 'hacker'],
+    'arnaque': ['con artist', 'scam'], 'escroc': ['con artist'], 'argent': ['money'], 'banque': ['bank'], 'bourse': ['stock market', 'wall street'],
+    'politique': ['politics', 'president'], 'president': ['president of the united states', 'president'],
+    'roi': ['king', 'royalty'], 'reine': ['queen', 'royalty'], 'royaute': ['royalty', 'monarchy'],
+    'espace': ['space', 'astronaut'], 'astronaute': ['astronaut'], 'extraterrestre': ['alien', 'extraterrestrial'], 'alien': ['alien'],
+    'robot': ['robot', 'artificial intelligence'], 'ia': ['artificial intelligence'], 'intelligence artificielle': ['artificial intelligence'],
+    'voyage dans le temps': ['time travel'], 'futur': ['future', 'dystopia'], 'dystopie': ['dystopia'],
+    'apocalypse': ['post-apocalyptic future', 'apocalypse'], 'fin du monde': ['end of the world', 'apocalypse'],
+    'catastrophe': ['disaster'], 'survie': ['survival'], 'ile deserte': ['deserted island'],
+    'zombie': ['zombie'], 'vampire': ['vampire'], 'loup garou': ['werewolf'], 'fantome': ['ghost'], 'maison hantee': ['haunted house'],
+    'demon': ['demon'], 'diable': ['devil', 'demon'], 'possession': ['demonic possession'], 'exorcisme': ['exorcism'],
+    'sorciere': ['witch'], 'magie': ['magic'], 'dragon': ['dragon'], 'super heros': ['superhero'], 'superheros': ['superhero'],
+    'secte': ['cult'], 'religion': ['religion'], 'eglise': ['church'],
+    'requin': ['shark'], 'dinosaure': ['dinosaur'], 'monstre': ['monster'], 'mer': ['sea', 'ocean'], 'ocean': ['ocean'],
+    'sous marin': ['submarine'], 'bateau': ['ship', 'boat'], 'naufrage': ['shipwreck'], 'avion': ['airplane', 'pilot'],
+    'pilote': ['pilot'], 'train': ['train'], 'montagne': ['mountain', 'mountain climbing'], 'foret': ['forest'], 'desert': ['desert'],
+    'chien': ['dog'], 'chat': ['cat'], 'cheval': ['horse'], 'animaux': ['animal'],
+    'sport': ['sports'], 'football': ['soccer'], 'foot': ['soccer'], 'boxe': ['boxing'], 'basket': ['basketball'],
+    'course': ['car race', 'race'], 'voiture': ['car', 'car race'], 'formule 1': ['formula 1'], 'combat': ['fight', 'martial arts'],
+    'arts martiaux': ['martial arts'], 'kung fu': ['kung fu'],
+    'ecole': ['school'], 'lycee': ['high school'], 'universite': ['college', 'university'], 'fac': ['college'], 'prof': ['teacher'],
+    'professeur': ['teacher'], 'ado': ['teenager', 'coming of age'], 'adolescent': ['teenager', 'coming of age'], 'enfance': ['childhood'],
+    'amour': ['love', 'romance'], 'mariage': ['wedding', 'marriage'], 'divorce': ['divorce'], 'famille': ['family'], 'amitie': ['friendship'],
+    'vengeance': ['revenge'], 'voyage': ['road trip', 'travel'], 'road trip': ['road trip'], 'vacances': ['vacation'],
+    'ete': ['summer'], 'plage': ['beach'], 'noel': ['christmas'], 'halloween': ['halloween'],
+    'cuisine': ['cooking', 'chef'], 'chef': ['chef'], 'restaurant': ['restaurant'], 'musique': ['music', 'musician'],
+    'chanteur': ['singer'], 'danse': ['dance'], 'rock': ['rock and roll'], 'journaliste': ['journalist'], 'pompier': ['firefighter'],
+    'moyen age': ['middle ages', 'medieval'], 'medieval': ['medieval'], 'chevalier': ['knight'], 'viking': ['vikings'],
+    'rome': ['ancient rome'], 'romain': ['ancient rome'], 'egypte': ['ancient egypt'], 'western': ['western'], 'cowboy': ['cowboy'],
+    'pirate': ['pirate'], 'samourai': ['samurai'], 'ninja': ['ninja'], 'jeu video': ['video game'],
+    'handicap': ['disability'], 'mort': ['death'], 'deuil': ['grief'], 'paris': ['paris, france'], 'new york': ['new york city'],
+  };
+  const IDEAS = ['Guerre', 'Hôpital', 'Braquage', 'Prison', 'Espace', 'Mafia', 'Zombies', 'Voyage dans le temps', 'Espionnage', 'Tribunal'];
+  let envieQ = '';
+  const envieRes = {}, envieBusy = {}, envieErr = {};
+  const envieKey = type => type + '|' + norm(envieQ);
+  const envieX = (type, id) => envieRes[envieKey(type)]?.list.find(r => r.id === id)?.x;
+  rMeta.tr = rMeta.tr || {};
+  const singular = n => n.split(' ').map(w => w.length > 3 ? w.replace(/[sx]$/, '') : w).join(' ');
+
+  // le mot tapé, en anglais (c'est la langue des thèmes TMDB)
+  async function envieTerms(q) {
+    const n = norm(q), sing = singular(n);
+    let t = THEMES[n] || THEMES[sing];
+    if (!t) {
+      t = [n];
+      let tr = rMeta.tr[n];
+      if (tr == null) {
+        try {
+          const d = await getJSON('https://api.mymemory.translated.net/get?langpair=fr|en&q=' + encodeURIComponent(q.trim()));
+          tr = d?.responseStatus == 200 ? norm(d.responseData?.translatedText || '') : '';
+          if (tr.length > 40) tr = '';
+          rMeta.tr[n] = tr;
+        } catch { tr = ''; }
+      }
+      if (tr && tr !== n) t.unshift(tr);
+    }
+    return [...new Set(t)].slice(0, 3);
+  }
+  // genres TMDB dont le nom français contient le mot (« guerre » → Guerre, Guerre & Politique)
+  async function envieGenres(q, type) {
+    const k = 'genres.' + type;
+    if (!rMeta[k] || Date.now() - rMeta[k].at > 30 * 86400e3)
+      rMeta[k] = { at: Date.now(), l: ((await tmdb(`/genre/${TP(type)}/list`, { language: 'fr-FR' })).genres || []).map(g => [g.id, norm(g.name)]) };
+    const n = norm(q), sing = singular(n);
+    return rMeta[k].l.filter(([, name]) => (' ' + name + ' ').includes(' ' + n + ' ') || (' ' + name + ' ').includes(' ' + sing + ' ')).map(([id]) => id);
+  }
+
+  async function envieSearch(q, type, step) {
+    step('Recherche des thèmes…', 0, 0);
+    const [terms, genres] = await Promise.all([envieTerms(q), envieGenres(q, type).catch(() => [])]);
+    const exact = new Set(), near = new Set();
+    await pool(terms, 3, async term => {
+      term = norm(term);
+      const re = new RegExp('(^| )' + term + '(s|es)?( |$)');
+      const res = (await tmdb('/search/keyword', { query: term })).results || [];
+      res.filter(r => re.test(norm(r.name))).slice(0, 15).forEach(r => (norm(r.name).replace(/(es|s)$/, '') === term.replace(/(es|s)$/, '') ? exact : near).add(r.id));
+    });
+    exact.forEach(id => near.delete(id));
+    if (!exact.size && !near.size && !genres.length) return { list: [], none: true };
+
+    const now = today(), base = {
+      language: 'fr-FR', include_adult: 'false', sort_by: 'popularity.desc', without_keywords: ANIME_KW,
+      'vote_count.gte': type === 'serie' ? 40 : 150, [type === 'serie' ? 'first_air_date.lte' : 'primary_release_date.lte']: now,
+    };
+    const queries = [];
+    if (exact.size) [1, 2, 3].forEach(page => queries.push([{ with_keywords: [...exact].slice(0, 12).join('|'), page }, 1.4]));
+    if (near.size) [1, 2].forEach(page => queries.push([{ with_keywords: [...exact, ...near].slice(0, 30).join('|'), page }, 1.1]));
+    if (genres.length) [1, 2].forEach(page => queries.push([{ with_genres: genres.join('|'), page }, exact.size ? 1 : 1.2]));
+    const C = new Map();
+    let n = 0;
+    step('Recherche des titres…', 0, queries.length);
+    await pool(queries, 4, async ([p, bonus]) => {
+      const d = await tmdb('/discover/' + TP(type), { ...base, ...p });
+      (d.results || []).forEach(raw => {
+        const r = compact(raw), c = C.get(r.id);
+        if (!c) C.set(r.id, { r, bonus, pop: raw.popularity || 0 });
+        else c.bonus = Math.max(c.bonus, bonus) + 0.1;   // trouvé par plusieurs chemins : bien dans le thème
+      });
+      step(null, ++n);
+    });
+    const owned = new Set(items.filter(i => i.type === type && i.ext?.src === 'tmdb').map(i => i.ext.id));
+    const ownedTitles = new Set(items.filter(i => i.type === type).map(i => norm(i.title)));
+    const keep = ({ r }) => {
+      if (owned.has(r.id) || ownedTitles.has(norm(r.t)) || rMeta.dislikes[type + ':' + r.id]) return false;
+      if (!r.d || r.d > now) return false;
+      if (r.g.includes(16) && (r.l === 'ja' || r.oc.includes('JP'))) return false;
+      if (type === 'serie' && r.g.some(g => BAN_TV.includes(g))) return false;
+      if (r.va < 6) return false;
+      if (yearOf(r.d) < 2000 && !(r.vc >= (type === 'serie' ? 1000 : 4000) && r.va >= 7.5)) return false;
+      return true;
+    };
+    const score = c => {
+      const q = Math.min(1, Math.max(0, (c.r.va - 6) / 2.5));
+      return c.bonus * Math.log10(10 + c.pop) * (0.6 + 0.5 * q) * (0.8 + 0.1 * Math.log10(c.r.vc)) * (yearOf(c.r.d) < 2000 ? 0.85 : 1);
+    };
+    let list = [...C.values()].filter(keep).map(c => (c.s = score(c), c)).sort((a, b) => b.s - a.s).slice(0, 24);
+    n = 0;
+    step('Préparation des fiches…', 0, list.length);
+    await pool(list, 5, async c => { c.x = await candData(type, c.r.id); step(null, ++n); });
+    list = list.filter(c => c.x && !c.x.k.includes(ANIME_KW)).slice(0, 20);
+    if (!list.length && !C.size && !navigator.onLine) throw new Error('Pas de connexion Internet');
+    return { list: list.map(c => ({ id: c.r.id, by: [], nb: 0, x: c.x })) };
+  }
+
+  function renderIdeas() {
+    $('#envieIdeas').innerHTML = envieQ ? '' : IDEAS.map(t => `<button type="button" class="chip" data-idea="${esc(t)}">${esc(t)}</button>`).join('');
+  }
+  function renderEnvie() {
+    const type = recType, k = envieKey(type), o = envieRes[k], b = envieBusy[k], word = type === 'serie' ? 'séries' : 'films';
+    let html = b ? busyHTML(b) : '';
+    if (envieErr[k] && !b) html += `<p class="hint">⚠️ ${esc(envieErr[k])}</p>`;
+    if (o) {
+      const shown = o.list.filter(r => !recOwned(type, r.id, r.x));
+      if (o.none) html += `<div class="empty"><div class="big">🤔</div>Je ne trouve pas de thème « ${esc(envieQ)} ».<br>Essaie un autre mot, par exemple « ${esc(IDEAS[Math.floor(Math.random() * IDEAS.length)])} ».</div>`;
+      else if (!shown.length) html += `<div class="empty"><div class="big">🎬</div>Pas de ${word} à te proposer sur « ${esc(envieQ)} »${o.list.length ? ' que tu n\'aies pas déjà' : ''}.<br>Regarde l'autre onglet ou essaie un mot proche.</div>`;
+      else html += `<p class="note">${shown.length} ${word} sur le thème « ${esc(envieQ)} » · touche une affiche pour le résumé.
+        <a href="#" data-clear style="color:var(--accent);font-weight:600;text-decoration:none">✕ Revenir à Pour toi</a></p>`
+        + shown.map(r => recHTML(type, r, r.x, true)).join('');
+    }
+    $('#recsBody').innerHTML = html;
+  }
+  async function runEnvie(type) {
+    const k = envieKey(type), q = envieQ;
+    if (envieBusy[k] || envieRes[k]) return renderRecs();
+    if (!getKey()) return renderRecs();
+    if (!navigator.onLine) { envieErr[k] = 'Pas de connexion Internet, réessaie une fois en ligne.'; return renderRecs(); }
+    envieBusy[k] = { label: 'Recherche…', done: 0, total: 0 };
+    envieErr[k] = '';
+    renderRecs();
+    const cur = () => recType === type && envieKey(recType) === k;
+    try {
+      envieRes[k] = await envieSearch(q, type, (label, done, total) => {
+        const b = envieBusy[k];
+        if (label != null) b.label = label;
+        if (total != null) b.total = total;
+        b.done = done;
+        if (!cur()) return;
+        if (!$('#recLbl')) return renderRecs();
+        $('#recLbl').textContent = b.label;
+        $('#recCnt').textContent = b.total ? `${b.done}/${b.total}` : '';
+        $('#recFill').style.width = (b.total ? Math.min(100, b.done / b.total * 100) : 0) + '%';
+      });
+    } catch (err) { envieErr[k] = err.message; }
+    envieBusy[k] = null;
+    saveRecs();
+    if (cur()) renderRecs();
+  }
+  function setEnvie(q) {
+    envieQ = q.trim().slice(0, 60);
+    $('#envie').value = envieQ;
+    renderIdeas();
+    $('#recsSheet').scrollTop = 0;
+    if (envieQ) runEnvie(recType); else showRecs();
+  }
+  $('#envieForm').addEventListener('submit', e => { e.preventDefault(); $('#envie').blur(); setEnvie($('#envie').value); });
+  $('#envie').addEventListener('input', () => { if (!$('#envie').value.trim() && envieQ) setEnvie(''); });
+  $('#envieIdeas').addEventListener('click', e => { const b = e.target.closest('[data-idea]'); if (b) setEnvie(b.dataset.idea); });
+  renderIdeas();
+
   $('#recsBtn').addEventListener('click', () => { openSheet($('#recsSheet')); $('#recsSheet').scrollTop = 0; showRecs(); });
   $('#recTabs').addEventListener('click', e => {
     const b = e.target.closest('[data-v]'); if (!b || b.dataset.v === recType) return;
@@ -1358,13 +1572,14 @@
       e.preventDefault(); closeSheets(); setTimeout(() => openSheet($('#backupSheet')), 280); return;
     }
     if (e.target.closest('[data-refresh]')) { e.preventDefault(); return showRecs(true); }
+    if (e.target.closest('[data-clear]')) { e.preventDefault(); return setEnvie(''); }
     if (e.target.closest('[data-undo]')) {
       e.preventDefault();
       Object.keys(rMeta.dislikes).forEach(k => { if (k.startsWith(type + ':')) delete rMeta.dislikes[k]; });
       saveRecs(); return showRecs(true);
     }
     const card = e.target.closest('.rec'); if (!card) return;
-    const id = Number(card.dataset.k), x = rCand[type + ':' + id];
+    const id = Number(card.dataset.k), x = rCand[type + ':' + id] || envieX(type, id);
     if (e.target.closest('[data-open]')) return card.classList.toggle('open');
     if (e.target.closest('[data-nope]')) {
       rMeta.dislikes[type + ':' + id] = { t: x?.t || '', at: Date.now() };
@@ -1374,15 +1589,16 @@
     }
     const vu = e.target.closest('[data-vu]');
     if (vu) {
+      const wish = vu.dataset.vu === 'avoir';
       vu.disabled = true; vu.textContent = 'Ajout…';
       try {
         const d = await details({ src: 'tmdb', id }, type);
-        items.push({ id: uid(), createdAt: Date.now(), type, status: 'vu', rating: 0, date: '',
+        items.push({ id: uid(), createdAt: Date.now(), type, status: wish ? 'avoir' : 'vu', rating: 0, date: wish ? today() : '',
           season: '', episode: '', seasonsTotal: '', episodesTotal: '', notes: '',
           ...(type === 'film' ? { colCheckedAt: Date.now() } : {}), ...d });
         save(); renderFilters(); render();
         card.classList.add('leaving'); setTimeout(renderRecs, 280);
-        toast(`« ${d.title} » ajouté à tes titres vus ✓`);
+        toast(wish ? `« ${d.title} » ajouté à ta liste « À voir » ＋` : `« ${d.title} » ajouté à tes titres vus ✓`);
       } catch (err) { toast(err.message); renderRecs(); }
     }
   });

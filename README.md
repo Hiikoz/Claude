@@ -10,13 +10,14 @@ Petite web app pour iPhone : je note les films et séries que j'ai regardés pou
 - **Saga complète** : après avoir choisi un film, un bouton ajoute tous les films sortis de sa saga d'un coup
 - **Suites de films** : alerte 🔔 quand une suite d'un de tes films est annoncée, puis quand elle sort, avec un bouton pour l'ajouter « À voir »
 - **Pour toi ✨** : une vingtaine de films et de séries (deux onglets) que tu n'as pas encore vus, choisis d'après ce que tu as regardé. Pour chaque titre : où le regarder en France, la raison (« Parce que tu as aimé… »), le résumé et la bande-annonce. Bouton **✓ Vu** (le titre rejoint ta vidéothèque) et **👎 Pas aimé** (il ne revient plus, et les titres du même style reculent). Pas d'anime, et pas de titre d'avant 2000 sauf les grands classiques
+- **Une envie ? 🔎** : dans « Pour toi », on tape un thème (« Guerre », « Militaire », « Hôpital », « Braquage », « Voyage dans le temps »…) et l'app propose les films et séries les plus connus et les mieux notés sur ce thème, avec les mêmes fiches (où regarder, résumé, bande-annonce) et un bouton **＋ À voir** en plus. Des idées de thèmes sont proposées sous le champ. Les mots courants sont traduits par l'app elle-même ; pour un mot qu'elle ne connaît pas, seul ce mot est envoyé au service de traduction gratuit MyMemory
 - **Vue Affiches** : la liste en grille d'affiches
 - **Statistiques** : temps passé devant l'écran, films et épisodes vus, note moyenne, titres par mois, genres et plateformes préférés, mieux notés
 - Recherche, filtres (films, séries, vus, en cours, à voir, coups de cœur) et tri
 - Thème « Cinéma » animé, mode sombre automatique, fonctionne hors ligne
 - Sauvegarde : export / import d'un fichier `.json` (à garder dans Fichiers ou iCloud Drive)
 
-Les données restent sur le téléphone (stockage local du navigateur), rien n'est envoyé sur Internet.
+Les données restent sur le téléphone (stockage local du navigateur) : ta vidéothèque n'est envoyée nulle part. Seules les recherches partent vers TMDB, TVmaze et, pour les thèmes peu courants, MyMemory.
 
 ## Installer sur l'iPhone
 1. Mettre l'app en ligne avec GitHub Pages : sur GitHub, **Settings → Pages**, source « Deploy from a branch », choisir la branche et le dossier `/ (root)`.
